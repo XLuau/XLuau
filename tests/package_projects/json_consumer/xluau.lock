@@ -1,17 +1,17 @@
 {
   "version": 0,
-  "generated": "2026-04-30T00:27:31.813404Z",
+  "generated": "2026-04-30T00:42:49.9969983Z",
   "xluau": "0.1.0",
   "packages": {
     "xluau-json": {
-      "registryName": "json",
-      "repo": "XLuau/xluau-json",
+      "registryName": null,
+      "repo": "../../../xluau-json",
       "version": "1.0.0",
       "sha": "4e2b3e38d8aaa24b577fbae8ef2726a135958d2a04f89529dc8963e258846575",
       "integrity": "sha256:4e2b3e38d8aaa24b577fbae8ef2726a135958d2a04f89529dc8963e258846575",
       "dependencies": {},
       "entry": "init.xl",
-      "source": "json"
+      "source": "file:../../../xluau-json"
     }
   }
 }

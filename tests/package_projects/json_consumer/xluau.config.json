@@ -5,6 +5,6 @@
   "outDir": "out",
   "registry": "../../../XLpkg/index.json",
   "packages": {
-    "json": "json"
+    "json": "file:../../../xluau-json"
   }
 }

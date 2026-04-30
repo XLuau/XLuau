@@ -422,7 +422,7 @@ impl PackageManager {
     }
 
     fn load_registry(&self) -> Result<RegistryIndex> {
-        read_registry(&self.config.registry)
+        read_registry(&self.root, &self.config.registry)
     }
 
     fn read_manifest(&self, path: &Path) -> Result<PackageManifest> {
@@ -500,7 +500,12 @@ impl PackageManager {
         }
 
         if let Some(local_path) = &resolved.local_path {
-            copy_directory(local_path, &destination)?;
+            let source_path = if local_path.is_absolute() {
+                local_path.clone()
+            } else {
+                self.root.join(local_path)
+            };
+            copy_directory(&source_path, &destination)?;
         } else {
             clone_package_repo(&resolved.repo, resolved.checkout_ref.as_deref(), &destination)?;
         }
@@ -656,7 +661,7 @@ fn current_timestamp() -> String {
         .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
 }
 
-fn read_registry(location: &str) -> Result<RegistryIndex> {
+fn read_registry(root: &Path, location: &str) -> Result<RegistryIndex> {
     let contents = if location.starts_with("http://") || location.starts_with("https://") {
         reqwest::blocking::get(location)
             .map_err(|source| CompilerError::Other(source.to_string()))?
@@ -665,17 +670,22 @@ fn read_registry(location: &str) -> Result<RegistryIndex> {
             .text()
             .map_err(|source| CompilerError::Other(source.to_string()))?
     } else {
-        let path = normalize_registry_path(location);
+        let path = normalize_registry_path(root, location);
         fs::read_to_string(&path).map_err(|source| CompilerError::Io { path, source })?
     };
     serde_json::from_str(&contents).map_err(|source| CompilerError::Other(source.to_string()))
 }
 
-fn normalize_registry_path(location: &str) -> PathBuf {
-    if let Some(path) = location.strip_prefix("file://") {
+fn normalize_registry_path(root: &Path, location: &str) -> PathBuf {
+    let path = if let Some(path) = location.strip_prefix("file://") {
         PathBuf::from(path)
     } else {
         PathBuf::from(location)
+    };
+    if path.is_absolute() {
+        path
+    } else {
+        root.join(path)
     }
 }
 
@@ -700,6 +710,7 @@ fn parse_package_source(input: &str) -> PackageSource {
         requested_version,
     }
 }
+
 
 fn split_source_ref(input: &str) -> (&str, Option<String>) {
     input
@@ -1240,19 +1251,19 @@ fn sanitize_identifier(text: &str) -> String {
 }
 
 fn infer_package_types(package_id: &str, source: &str) -> (Vec<String>, String) {
+    let exported_types = collect_exported_types(source);
+    let exported_names = exported_types
+        .iter()
+        .map(|(name, _)| name.clone())
+        .collect::<Vec<_>>();
     let mut aliases = Vec::new();
-    for line in source.lines() {
-        let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix("export type ")
-            && let Some((name, body)) = rest.split_once('=')
-        {
-            aliases.push(format!(
-                "export type {}_{} = {}",
-                sanitize_identifier(package_id),
-                name.trim(),
-                body.trim()
-            ));
-        }
+    for (name, body) in exported_types {
+        aliases.push(format!(
+            "export type {}_{} = {}",
+            sanitize_identifier(package_id),
+            name,
+            rewrite_exported_type_references(package_id, &body, &exported_names)
+        ));
     }
     let fields = infer_public_field_names(source)
         .into_iter()
@@ -1264,6 +1275,79 @@ fn infer_package_types(package_id: &str, source: &str) -> (Vec<String>, String) 
         fields.join("\n")
     );
     (aliases, type_alias)
+}
+
+fn collect_exported_types(source: &str) -> Vec<(String, String)> {
+    let mut exported = Vec::new();
+    let lines = source.lines().collect::<Vec<_>>();
+    let mut index = 0;
+    while index < lines.len() {
+        let trimmed = lines[index].trim();
+        if let Some(rest) = trimmed.strip_prefix("export type ")
+            && let Some((name, body_start)) = rest.split_once('=')
+        {
+            let name = name.trim().to_string();
+            let mut body_lines = vec![body_start.trim().to_string()];
+            let mut brace_depth = body_start.matches('{').count() as i32
+                - body_start.matches('}').count() as i32;
+            let mut paren_depth = body_start.matches('(').count() as i32
+                - body_start.matches(')').count() as i32;
+            let mut bracket_depth = body_start.matches('[').count() as i32
+                - body_start.matches(']').count() as i32;
+            while brace_depth > 0 || paren_depth > 0 || bracket_depth > 0 {
+                index += 1;
+                if index >= lines.len() {
+                    break;
+                }
+                let next = lines[index].trim();
+                body_lines.push(next.to_string());
+                brace_depth += next.matches('{').count() as i32 - next.matches('}').count() as i32;
+                paren_depth += next.matches('(').count() as i32 - next.matches(')').count() as i32;
+                bracket_depth += next.matches('[').count() as i32 - next.matches(']').count() as i32;
+            }
+            exported.push((name, body_lines.join("\n")));
+        }
+        index += 1;
+    }
+    exported
+}
+
+fn rewrite_exported_type_references(package_id: &str, body: &str, exported_names: &[String]) -> String {
+    let prefix = format!("{}_", sanitize_identifier(package_id));
+    let mut rewritten = body.to_string();
+    for name in exported_names {
+        let target = format!("{prefix}{name}");
+        rewritten = replace_identifier_tokens(&rewritten, name, &target);
+    }
+    rewritten
+}
+
+fn replace_identifier_tokens(source: &str, needle: &str, replacement: &str) -> String {
+    let mut output = String::with_capacity(source.len());
+    let chars = source.chars().collect::<Vec<_>>();
+    let needle_chars = needle.chars().collect::<Vec<_>>();
+    let mut index = 0;
+    while index < chars.len() {
+        let matches = index + needle_chars.len() <= chars.len()
+            && chars[index..index + needle_chars.len()] == needle_chars[..];
+        if matches {
+            let before_ok = index == 0 || !is_identifier_char(chars[index - 1]);
+            let after_index = index + needle_chars.len();
+            let after_ok = after_index == chars.len() || !is_identifier_char(chars[after_index]);
+            if before_ok && after_ok {
+                output.push_str(replacement);
+                index = after_index;
+                continue;
+            }
+        }
+        output.push(chars[index]);
+        index += 1;
+    }
+    output
+}
+
+fn is_identifier_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || ch == '_'
 }
 
 fn infer_public_field_names(source: &str) -> Vec<String> {
@@ -1311,8 +1395,9 @@ mod tests {
     };
 
     use super::{
-        PackageManager, RegistryIndex, RegistryPackage, default_config_value_for_source,
-        default_alias_for_source, infer_public_field_names, parse_package_source, read_registry,
+        PackageManager, RegistryIndex, RegistryPackage, collect_exported_types,
+        default_config_value_for_source, default_alias_for_source, infer_package_types,
+        infer_public_field_names, parse_package_source, read_registry,
     };
     use crate::config::XluauConfig;
 
@@ -1343,7 +1428,7 @@ mod tests {
             &index,
             r#"{"version":1,"packages":{"http":{"repo":"xluau-lang/xluau-http","description":"HTTP","latest":"1.2.0","versions":["1.2.0"]}}}"#,
         );
-        let registry = read_registry(index.to_string_lossy().as_ref()).unwrap();
+        let registry = read_registry(&root, index.to_string_lossy().as_ref()).unwrap();
         assert_eq!(registry.packages["http"].repo, "xluau-lang/xluau-http");
     }
 
@@ -1381,6 +1466,100 @@ return {
 "#,
         );
         assert_eq!(fields, vec!["get".to_string(), "post".to_string()]);
+    }
+
+    #[test]
+    fn collects_multiline_exported_types() {
+        let exported = collect_exported_types(
+            r#"
+export type JsonPrimitive = nil | boolean | number | string
+export type JsonError = {
+    message: string,
+    position: number,
+}
+"#,
+        );
+        assert_eq!(exported.len(), 2);
+        assert_eq!(exported[0].0, "JsonPrimitive");
+        assert_eq!(exported[1].0, "JsonError");
+        assert!(exported[1].1.contains("message: string"));
+        assert!(exported[1].1.contains("position: number"));
+    }
+
+    #[test]
+    fn rewrites_exported_type_references_for_bundle_surface() {
+        let (aliases, surface) = infer_package_types(
+            "xluau-json",
+            r#"
+export type JsonPrimitive = nil | boolean | number | string
+export type JsonArray = { JsonValue }
+export type JsonObject = { [string]: JsonValue }
+export type JsonValue = JsonPrimitive | JsonArray | JsonObject
+
+return {
+    decode = function() end,
+}
+"#,
+        );
+        assert!(aliases.contains(&"export type xluau_json_JsonPrimitive = nil | boolean | number | string".to_string()));
+        assert!(aliases.contains(&"export type xluau_json_JsonArray = { xluau_json_JsonValue }".to_string()));
+        assert!(aliases.contains(&"export type xluau_json_JsonObject = { [string]: xluau_json_JsonValue }".to_string()));
+        assert!(aliases.contains(&"export type xluau_json_JsonValue = xluau_json_JsonPrimitive | xluau_json_JsonArray | xluau_json_JsonObject".to_string()));
+        assert!(surface.contains("decode: any"));
+    }
+
+    #[test]
+    fn resolves_relative_registry_path_from_project_root() {
+        let root = temp_root("relative_registry");
+        write_file(
+            &root.join("registry/index.json"),
+            r#"{"version":1,"packages":{"json":{"repo":"XLuau/xluau-json","description":"JSON","latest":"1.0.0","versions":["1.0.0"]}}}"#,
+        );
+        let config = XluauConfig {
+            registry: "registry/index.json".to_string(),
+            ..XluauConfig::default()
+        };
+        write_file(
+            &root.join("xluau.config.json"),
+            &serde_json::to_string_pretty(&config).unwrap(),
+        );
+        let manager = PackageManager::discover(&root).unwrap();
+        let registry = manager.load_registry().unwrap();
+        assert_eq!(registry.packages["json"].repo, "XLuau/xluau-json");
+    }
+
+    #[test]
+    fn installs_relative_local_package_path_from_project_root() {
+        let root = temp_root("relative_local_package");
+        let package_repo = root.join("packages/json");
+        write_file(
+            &package_repo.join("xlpkg.json"),
+            r#"{"name":"json","version":"1.0.0","repo":"local/json","entry":"init.xl"}"#,
+        );
+        write_file(
+            &package_repo.join("init.xl"),
+            r#"
+return {
+    decode = function(value) return value end,
+}
+"#,
+        );
+        let config = XluauConfig {
+            packages: BTreeMap::from([("json".to_string(), "file:../packages/json".to_string())]),
+            registry: root.join("index.json").to_string_lossy().to_string(),
+            ..XluauConfig::default()
+        };
+        write_file(&root.join("index.json"), r#"{"version":1,"packages":{}}"#);
+        write_file(
+            &root.join("app/xluau.config.json"),
+            &serde_json::to_string_pretty(&config).unwrap(),
+        );
+        write_file(&root.join("app/src/main.xl"), "return nil");
+
+        let manager = PackageManager::discover(&root.join("app")).unwrap();
+        let installed = manager.install_all().unwrap();
+        assert_eq!(installed[0].package_id, "json");
+        assert!(root.join("app/xluau_packages/json/init.xl").is_file());
     }
 
     #[test]
