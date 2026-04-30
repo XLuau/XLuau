@@ -1205,13 +1205,6 @@ fn render_package_iife(
     let mut lines = vec![format!("local _{} = (function(__deps)", local_name)];
     lines.push("    local __modules = {}".to_string());
     lines.push("    local __cache = {}".to_string());
-    for module in modules {
-        lines.push(format!("    __modules[{}] = function()", quote_string(&module.id)));
-        for line in module.luau.lines() {
-            lines.push(format!("        {line}"));
-        }
-        lines.push("    end".to_string());
-    }
     lines.push("    local function __xlpkg_require(name)".to_string());
     lines.push("        if __cache[name] ~= nil then return __cache[name] end".to_string());
     lines.push("        local module_loader = __modules[name]".to_string());
@@ -1220,6 +1213,13 @@ fn render_package_iife(
     lines.push("        __cache[name] = value".to_string());
     lines.push("        return value".to_string());
     lines.push("    end".to_string());
+    for module in modules {
+        lines.push(format!("    __modules[{}] = function()", quote_string(&module.id)));
+        for line in module.luau.lines() {
+            lines.push(format!("        {line}"));
+        }
+        lines.push("    end".to_string());
+    }
     lines.push(format!("    return __xlpkg_require({})", quote_string(&entry_id)));
     lines.push(format!("end)({deps_table})"));
     lines.join("\n")
