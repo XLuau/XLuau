@@ -151,6 +151,7 @@ Builtins available at compile time:
 - `has`
 - `freeze`
 - `httpGet`
+- `httpJson`
 - `upper`
 - `lower`
 - `replace`
@@ -174,7 +175,7 @@ end
 
 Compile-time HTTP is available as an explicit opt-in extension.
 
-It is disabled by default and only supports `GET` requests through `httpGet(url)`.
+It is disabled by default and only supports `GET` requests through `httpGet(url)` and `httpJson(url)`.
 
 Example config:
 
@@ -201,6 +202,23 @@ local version = comptime RESPONSE.body
 - `status`
 - `url`
 - `body`
+
+`httpJson` parses the response body with `serde_json` and converts it into comptime values:
+
+```lua
+comptime const DATA = httpJson("https://example.com/api/config.json")
+local version = comptime DATA.version
+local firstTag = comptime DATA.tags[1]
+```
+
+Supported JSON mappings:
+
+- JSON `null` -> `nil`
+- booleans -> booleans
+- numbers -> numbers
+- strings -> strings
+- arrays -> compile-time arrays
+- objects -> compile-time tables
 
 Requests must match one of the configured `comptimeHttp.allow` prefixes.
 

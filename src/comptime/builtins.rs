@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use reqwest::blocking::Client;
+use serde_json::Value as JsonValue;
 
 use crate::compiler::{CompilerError, Result};
 
@@ -18,6 +19,7 @@ pub fn is_builtin(name: &str) -> bool {
             | "has"
             | "freeze"
             | "httpGet"
+            | "httpJson"
             | "upper"
             | "lower"
             | "replace"
@@ -114,6 +116,10 @@ pub fn call_builtin(name: &str, args: Vec<CtValue>, options: &ComptimeOptions) -
         "httpGet" => {
             expect_arg_count(name, &args, 1)?;
             http_get(expect_string(&args[0], name)?, options)
+        }
+        "httpJson" => {
+            expect_arg_count(name, &args, 1)?;
+            http_json(expect_string(&args[0], name)?, options)
         }
         "upper" => {
             expect_arg_count(name, &args, 1)?;
@@ -249,6 +255,30 @@ fn expect_string<'a>(value: &'a CtValue, name: &str) -> Result<&'a str> {
 }
 
 fn http_get(url: &str, options: &ComptimeOptions) -> Result<CtValue> {
+    let response = fetch_http(url, options)?;
+
+    Ok(CtValue::Table(CtTable {
+        entries: vec![
+            ("ok".to_string(), CtValue::Bool(response.ok)),
+            ("status".to_string(), CtValue::Number(response.status as f64)),
+            ("url".to_string(), CtValue::String(url.to_string())),
+            ("body".to_string(), CtValue::String(response.body)),
+        ],
+        frozen: true,
+    }))
+}
+
+fn http_json(url: &str, options: &ComptimeOptions) -> Result<CtValue> {
+    let response = fetch_http(url, options)?;
+    let parsed: JsonValue = serde_json::from_str(&response.body).map_err(|error| {
+        CompilerError::Other(format!(
+            "Compile-time HTTP JSON parse failed for `{url}`: {error}"
+        ))
+    })?;
+    Ok(deep_freeze(json_to_ct_value(parsed)?))
+}
+
+fn fetch_http(url: &str, options: &ComptimeOptions) -> Result<HttpResponse> {
     let http = &options.http;
     if !http.enabled {
         return Err(CompilerError::Other(
@@ -290,13 +320,60 @@ fn http_get(url: &str, options: &ComptimeOptions) -> Result<CtValue> {
         ))
     })?;
 
-    Ok(CtValue::Table(CtTable {
-        entries: vec![
-            ("ok".to_string(), CtValue::Bool(status.is_success())),
-            ("status".to_string(), CtValue::Number(status.as_u16() as f64)),
-            ("url".to_string(), CtValue::String(url.to_string())),
-            ("body".to_string(), CtValue::String(body)),
-        ],
-        frozen: true,
-    }))
+    Ok(HttpResponse {
+        ok: status.is_success(),
+        status: status.as_u16(),
+        body,
+    })
+}
+
+fn json_to_ct_value(value: JsonValue) -> Result<CtValue> {
+    match value {
+        JsonValue::Null => Ok(CtValue::Nil),
+        JsonValue::Bool(value) => Ok(CtValue::Bool(value)),
+        JsonValue::Number(value) => value.as_f64().map(CtValue::Number).ok_or_else(|| {
+            CompilerError::Other(
+                "Compile-time JSON numbers must fit in an f64.".to_string(),
+            )
+        }),
+        JsonValue::String(value) => Ok(CtValue::String(value)),
+        JsonValue::Array(items) => Ok(CtValue::Array(CtArray {
+            items: items
+                .into_iter()
+                .map(json_to_ct_value)
+                .collect::<Result<Vec<_>>>()?,
+            frozen: false,
+        })),
+        JsonValue::Object(entries) => Ok(CtValue::Table(CtTable {
+            entries: entries
+                .into_iter()
+                .map(|(key, value)| Ok((key, json_to_ct_value(value)?)))
+                .collect::<Result<Vec<_>>>()?,
+            frozen: false,
+        })),
+    }
+}
+
+fn deep_freeze(value: CtValue) -> CtValue {
+    match value {
+        CtValue::Array(array) => CtValue::Array(CtArray {
+            items: array.items.into_iter().map(deep_freeze).collect(),
+            frozen: true,
+        }),
+        CtValue::Table(table) => CtValue::Table(CtTable {
+            entries: table
+                .entries
+                .into_iter()
+                .map(|(key, value)| (key, deep_freeze(value)))
+                .collect(),
+            frozen: true,
+        }),
+        other => other,
+    }
+}
+
+struct HttpResponse {
+    ok: bool,
+    status: u16,
+    body: String,
 }

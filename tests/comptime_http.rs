@@ -87,6 +87,50 @@ return body, status, ok
 }
 
 #[test]
+fn comptime_http_json_embeds_nested_values() {
+    let root = temp_project("json");
+    let base_url = start_test_server(
+        r#"{"version":"v1","flags":{"debug":true},"items":["alpha","beta"]}"#,
+        200,
+        "OK",
+    );
+    write_file(
+        &root,
+        "xluau.config.json",
+        &format!(
+            r#"{{
+  "include": ["src/**/*.xl"],
+  "comptimeHttp": {{
+    "enabled": true,
+    "allow": ["{base_url}/"],
+    "timeoutMs": 3000
+  }}
+}}"#
+        ),
+    );
+    write_file(
+        &root,
+        "src/main.xl",
+        &format!(
+            r#"
+comptime const DATA = httpJson("{base_url}/data")
+local version = comptime DATA.version
+local debug = comptime DATA.flags.debug
+local firstItem = comptime DATA.items[1]
+
+return version, debug, firstItem
+"#
+        ),
+    );
+
+    let compiler = Compiler::discover(&root).expect("compiler");
+    let artifact = compiler.build_file(&root.join("src/main.xl")).expect("artifact");
+    assert!(artifact.luau.contains(r#"local version = "v1""#));
+    assert!(artifact.luau.contains("local debug = true"));
+    assert!(artifact.luau.contains(r#"local firstItem = "alpha""#));
+}
+
+#[test]
 fn comptime_http_requires_explicit_enablement() {
     let root = temp_project("disabled");
     write_file(
