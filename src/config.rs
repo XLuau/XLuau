@@ -58,6 +58,19 @@ pub struct XluauConfig {
     pub minify: bool,
     #[serde(default = "default_true")]
     pub deduplicate_deps: bool,
+    #[serde(default)]
+    pub comptime_http: ComptimeHttpConfig,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComptimeHttpConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub allow: Vec<String>,
+    #[serde(default = "default_comptime_http_timeout_ms")]
+    pub timeout_ms: u64,
 }
 
 impl Default for XluauConfig {
@@ -87,6 +100,7 @@ impl Default for XluauConfig {
             registry: default_registry(),
             minify: default_true(),
             deduplicate_deps: default_true(),
+            comptime_http: ComptimeHttpConfig::default(),
         }
     }
 }
@@ -164,4 +178,8 @@ fn default_bundle_path() -> String {
 
 fn default_registry() -> String {
     "https://raw.githubusercontent.com/XLuau/XLpkg/master/index.json".to_string()
+}
+
+fn default_comptime_http_timeout_ms() -> u64 {
+    5_000
 }

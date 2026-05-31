@@ -6,21 +6,31 @@ use crate::{
 };
 
 use super::{
+    ComptimeOptions,
     env::CtEnv,
     eval::Evaluator,
     value::{CtFunction, CtValue},
 };
 
-pub fn expand_program(program: &Program) -> Result<Program> {
-    let mut expander = Expander::default();
+pub fn expand_program(program: &Program, options: ComptimeOptions) -> Result<Program> {
+    let mut expander = Expander::new(options);
     Ok(Program {
         block: expander.expand_inline_block(&program.block)?,
     })
 }
 
-#[derive(Default)]
 struct Expander {
     env: CtEnv,
+    options: ComptimeOptions,
+}
+
+impl Expander {
+    fn new(options: ComptimeOptions) -> Self {
+        Self {
+            env: CtEnv::default(),
+            options,
+        }
+    }
 }
 
 impl Expander {
@@ -672,7 +682,7 @@ impl Expander {
     }
 
     fn define_comptime_local(&mut self, local: &LocalDecl) -> Result<()> {
-        let mut evaluator = Evaluator::new(self.env.clone());
+        let mut evaluator = Evaluator::new(self.env.clone(), self.options.clone());
         let mut values = local
             .values
             .iter()
@@ -710,13 +720,14 @@ impl Expander {
             params: function.params.clone(),
             body: function.body.clone(),
             env: self.env.clone(),
+            options: self.options.clone(),
         });
         self.env.define_function(&function.name.root, handle);
         Ok(())
     }
 
     fn evaluate_comptime_expr(&self, expr: &Expr) -> Result<CtValue> {
-        let mut evaluator = Evaluator::new(self.env.clone());
+        let mut evaluator = Evaluator::new(self.env.clone(), self.options.clone());
         evaluator.eval_expr(expr)
     }
 

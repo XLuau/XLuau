@@ -6,6 +6,7 @@ use crate::{
 };
 
 use super::{
+    ComptimeOptions,
     builtins::{as_array_index, call_builtin, call_method, is_builtin, table_get, table_insert},
     env::CtEnv,
     value::{CtArray, CtFunctionHandle, CtTable, CtValue, decode_string_literal, parse_number_literal},
@@ -13,6 +14,7 @@ use super::{
 
 pub struct Evaluator {
     env: CtEnv,
+    options: ComptimeOptions,
 }
 
 enum Flow {
@@ -21,8 +23,8 @@ enum Flow {
 }
 
 impl Evaluator {
-    pub fn new(env: CtEnv) -> Self {
-        Self { env }
+    pub fn new(env: CtEnv, options: ComptimeOptions) -> Self {
+        Self { env, options }
     }
 
     pub fn eval_expr(&mut self, expr: &Expr) -> Result<CtValue> {
@@ -61,7 +63,7 @@ impl Evaluator {
         function: &CtFunctionHandle,
         args: Vec<CtValue>,
     ) -> Result<CtValue> {
-        let mut nested = Evaluator::new(function.env.clone());
+        let mut nested = Evaluator::new(function.env.clone(), function.options.clone());
         nested.env.push_scope();
         if let Some(name) = &function.name {
             nested
@@ -450,7 +452,7 @@ impl Evaluator {
                     .iter()
                     .map(|arg| self.eval_expr(arg))
                     .collect::<Result<Vec<_>>>()?;
-                let mut current = call_builtin(name, args)?;
+                let mut current = call_builtin(name, args, &self.options)?;
                 for segment in &segments[1..] {
                     current = self.eval_chain_segment(current, segment)?;
                 }
@@ -513,7 +515,7 @@ impl Evaluator {
                     .iter()
                     .map(|arg| self.eval_expr(arg))
                     .collect::<Result<Vec<_>>>()?;
-                call_method(current, name, args)
+                call_method(current, name, args, &self.options)
             }
         }
     }

@@ -1,6 +1,13 @@
+use std::time::Duration;
+
+use reqwest::blocking::Client;
+
 use crate::compiler::{CompilerError, Result};
 
-use super::value::{CtArray, CtTable, CtValue};
+use super::{
+    ComptimeOptions,
+    value::{CtArray, CtTable, CtValue},
+};
 
 pub fn is_builtin(name: &str) -> bool {
     matches!(
@@ -10,6 +17,7 @@ pub fn is_builtin(name: &str) -> bool {
             | "values"
             | "has"
             | "freeze"
+            | "httpGet"
             | "upper"
             | "lower"
             | "replace"
@@ -23,7 +31,7 @@ pub fn is_builtin(name: &str) -> bool {
     )
 }
 
-pub fn call_builtin(name: &str, args: Vec<CtValue>) -> Result<CtValue> {
+pub fn call_builtin(name: &str, args: Vec<CtValue>, options: &ComptimeOptions) -> Result<CtValue> {
     match name {
         "len" => {
             expect_arg_count(name, &args, 1)?;
@@ -103,6 +111,10 @@ pub fn call_builtin(name: &str, args: Vec<CtValue>) -> Result<CtValue> {
             expect_arg_count(name, &args, 1)?;
             args[0].clone().with_frozen(true)
         }
+        "httpGet" => {
+            expect_arg_count(name, &args, 1)?;
+            http_get(expect_string(&args[0], name)?, options)
+        }
         "upper" => {
             expect_arg_count(name, &args, 1)?;
             Ok(CtValue::String(expect_string(&args[0], name)?.to_uppercase()))
@@ -179,10 +191,15 @@ pub fn call_builtin(name: &str, args: Vec<CtValue>) -> Result<CtValue> {
     }
 }
 
-pub fn call_method(receiver: CtValue, name: &str, mut args: Vec<CtValue>) -> Result<CtValue> {
+pub fn call_method(
+    receiver: CtValue,
+    name: &str,
+    mut args: Vec<CtValue>,
+    options: &ComptimeOptions,
+) -> Result<CtValue> {
     let mut all_args = vec![receiver];
     all_args.append(&mut args);
-    call_builtin(name, all_args)
+    call_builtin(name, all_args, options)
 }
 
 pub fn table_get(table: &CtTable, key: &str) -> Option<CtValue> {
@@ -229,4 +246,57 @@ fn expect_string<'a>(value: &'a CtValue, name: &str) -> Result<&'a str> {
             other.type_name()
         ))),
     }
+}
+
+fn http_get(url: &str, options: &ComptimeOptions) -> Result<CtValue> {
+    let http = &options.http;
+    if !http.enabled {
+        return Err(CompilerError::Other(
+            "Compile-time HTTP is disabled. Enable `comptimeHttp.enabled` in xluau.config.json."
+                .to_string(),
+        ));
+    }
+
+    if !matches!(url.split_once("://"), Some(("http", _)) | Some(("https", _))) {
+        return Err(CompilerError::Other(format!(
+            "Compile-time HTTP only supports http:// and https:// URLs, got `{url}`."
+        )));
+    }
+
+    if !http.allow.iter().any(|allowed| url.starts_with(allowed)) {
+        return Err(CompilerError::Other(format!(
+            "Compile-time HTTP request to `{url}` is not allowed. Add a matching prefix to `comptimeHttp.allow`."
+        )));
+    }
+
+    let client = Client::builder()
+        .timeout(Duration::from_millis(http.timeout_ms))
+        .build()
+        .map_err(|error| {
+            CompilerError::Other(format!(
+                "Failed to initialize compile-time HTTP client: {error}"
+            ))
+        })?;
+
+    let response = client.get(url).send().map_err(|error| {
+        CompilerError::Other(format!(
+            "Compile-time HTTP GET failed for `{url}`: {error}"
+        ))
+    })?;
+    let status = response.status();
+    let body = response.text().map_err(|error| {
+        CompilerError::Other(format!(
+            "Failed to read compile-time HTTP response body for `{url}`: {error}"
+        ))
+    })?;
+
+    Ok(CtValue::Table(CtTable {
+        entries: vec![
+            ("ok".to_string(), CtValue::Bool(status.is_success())),
+            ("status".to_string(), CtValue::Number(status.as_u16() as f64)),
+            ("url".to_string(), CtValue::String(url.to_string())),
+            ("body".to_string(), CtValue::String(body)),
+        ],
+        frozen: true,
+    }))
 }

@@ -5,7 +5,7 @@ use crate::{
     compiler::{CompilerError, Result},
 };
 
-use super::env::CtEnv;
+use super::{ComptimeOptions, env::CtEnv};
 
 #[derive(Debug, Clone)]
 pub enum CtValue {
@@ -38,6 +38,7 @@ pub struct CtFunction {
     pub params: Vec<Param>,
     pub body: Block,
     pub env: CtEnv,
+    pub options: ComptimeOptions,
 }
 
 impl CtValue {
