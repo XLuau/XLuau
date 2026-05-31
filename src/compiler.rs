@@ -1166,4 +1166,145 @@ local year, month, day = date:match(pattern`{year:%d+}-{month:%d+}-{day:%d+}`)
         assert!(map.emitted_file.ends_with("out/src/main.luau"));
         assert!(!map.mappings.is_empty());
     }
+
+    #[test]
+    fn lowers_comptime_const_into_runtime_literal() {
+        let source = r#"
+comptime const X = 3
+local y = comptime X
+"#;
+        let output = compiler().compile_source(source).unwrap();
+        assert!(output.contains("local y = 3"));
+        assert!(!output.contains("comptime"));
+    }
+
+    #[test]
+    fn lowers_comptime_string_concat() {
+        let source = r#"
+comptime const NAME = "rbxup" .. "-plugin"
+local x = comptime NAME
+"#;
+        let output = compiler().compile_source(source).unwrap();
+        assert!(output.contains(r#"local x = "rbxup-plugin""#));
+    }
+
+    #[test]
+    fn lowers_comptime_function_calls() {
+        let source = r#"
+comptime function makeName(prefix: string, name: string): string
+    return prefix .. "-" .. name
+end
+
+local pluginName = comptime makeName("rbxup", "plugin")
+"#;
+        let output = compiler().compile_source(source).unwrap();
+        assert!(output.contains(r#"local pluginName = "rbxup-plugin""#));
+    }
+
+    #[test]
+    fn lowers_comptime_if_true_branch() {
+        let source = r#"
+comptime const ENABLED = true
+
+comptime if ENABLED then
+    print("yes")
+else
+    print("no")
+end
+"#;
+        let output = compiler().compile_source(source).unwrap();
+        assert!(output.contains(r#"print("yes")"#));
+        assert!(!output.contains(r#"print("no")"#));
+    }
+
+    #[test]
+    fn lowers_comptime_if_false_branch() {
+        let source = r#"
+comptime const ENABLED = false
+
+comptime if ENABLED then
+    print("yes")
+else
+    print("no")
+end
+"#;
+        let output = compiler().compile_source(source).unwrap();
+        assert!(output.contains(r#"print("no")"#));
+        assert!(!output.contains(r#"print("yes")"#));
+    }
+
+    #[test]
+    fn lowers_comptime_switch() {
+        let source = r#"
+comptime const TARGET = "roblox"
+
+comptime switch TARGET
+    case "roblox"
+        print("roblox")
+    default
+        print("other")
+end
+"#;
+        let output = compiler().compile_source(source).unwrap();
+        assert!(output.contains(r#"print("roblox")"#));
+        assert!(!output.contains(r#"print("other")"#));
+    }
+
+    #[test]
+    fn rejects_runtime_values_in_comptime_expressions() {
+        let source = r#"
+local x = getValue()
+comptime const y = x
+"#;
+        let err = compiler().compile_source(source).unwrap_err();
+        assert!(format!("{err}").contains("Cannot use runtime local 'x' in a compile-time expression."));
+    }
+
+    #[test]
+    fn rejects_unsupported_compile_time_builtins() {
+        let source = r#"
+comptime const now = os.clock()
+"#;
+        let err = compiler().compile_source(source).unwrap_err();
+        assert!(format!("{err}").contains("Function 'os.clock' is not available at compile time."));
+    }
+
+    #[test]
+    fn rejects_non_boolean_comptime_if_conditions() {
+        let source = r#"
+comptime if "yes" then
+    print("bad")
+end
+"#;
+        let err = compiler().compile_source(source).unwrap_err();
+        assert!(format!("{err}").contains("comptime if condition must evaluate to a boolean."));
+    }
+
+    #[test]
+    fn lowers_comptime_table_generation_and_freeze() {
+        let source = r#"
+comptime const MAIN_PROPERTIES = freeze {
+    BasePart = {
+        "CFrame",
+        "Size",
+        "Anchored",
+    },
+}
+
+comptime function makeSet(list)
+    local out = {}
+    for _, value in list do
+        out[value] = true
+    end
+    return freeze(out)
+end
+
+const BASEPART_MAIN_SET = comptime makeSet(MAIN_PROPERTIES.BasePart)
+"#;
+        let output = compiler().compile_source(source).unwrap();
+        assert!(output.contains("local BASEPART_MAIN_SET = table.freeze({"));
+        assert!(output.contains("CFrame = true"));
+        assert!(output.contains("Size = true"));
+        assert!(output.contains("Anchored = true"));
+    }
 }

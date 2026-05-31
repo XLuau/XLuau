@@ -57,6 +57,11 @@ These features are implemented and tested in the current Rust compiler:
   - `switch` over literal unions and enums
   - `match` over discriminated unions
 - Pattern literals
+- `comptime const`
+- `comptime function`
+- `comptime if`
+- `comptime switch`
+- inline `comptime expression`
 - Source maps and line pragmas
 - `xluau remap`
 - `build --watch` and `check --watch`

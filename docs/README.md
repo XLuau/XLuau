@@ -10,6 +10,7 @@ They explain what XLuau is for, how the syntax works, when to use each feature, 
 - [Getting Started](./getting-started.md)
 - [Language Tour](./language-tour.md)
 - [Feature Status](./feature-status.md)
+- [Compile-Time Evaluation](./comptime.md)
 - [Tooling and Project Setup](./tooling.md)
 
 ## Guides
