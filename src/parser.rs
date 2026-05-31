@@ -37,16 +37,20 @@ impl<'src> Parser<'src> {
     }
 
     fn parse_stmt(&mut self) -> Result<Stmt> {
+        if self.match_keyword(Keyword::Comptime) {
+            let start = self.previous().span;
+            return self.parse_comptime_stmt(start);
+        }
         if self.match_keyword(Keyword::Local) {
             let start = self.previous().span;
             if self.match_keyword(Keyword::Function) {
-                return self.parse_function_stmt(true, false, start);
+                return self.parse_function_stmt(true, false, false, start);
             }
-            return self.parse_local_decl(false, start);
+            return self.parse_local_decl(false, false, start);
         }
         if self.match_keyword(Keyword::Const) {
             let start = self.previous().span;
-            return self.parse_local_decl(true, start);
+            return self.parse_local_decl(true, false, start);
         }
         if self.match_keyword(Keyword::State) {
             let start = self.previous().span;
@@ -54,12 +58,12 @@ impl<'src> Parser<'src> {
         }
         if self.match_keyword(Keyword::Function) {
             let start = self.previous().span;
-            return self.parse_function_stmt(false, false, start);
+            return self.parse_function_stmt(false, false, false, start);
         }
         if self.match_keyword(Keyword::Task) {
             let start = self.previous().span;
             self.expect_keyword(Keyword::Function)?;
-            return self.parse_function_stmt(true, true, start);
+            return self.parse_function_stmt(true, true, false, start);
         }
         if self.match_keyword(Keyword::Object) {
             let start = self.previous().span;
@@ -155,6 +159,24 @@ impl<'src> Parser<'src> {
         self.parse_assignment_or_call_stmt()
     }
 
+    fn parse_comptime_stmt(&mut self, span: Span) -> Result<Stmt> {
+        if self.match_keyword(Keyword::Const) {
+            return self.parse_local_decl(true, true, span);
+        }
+        if self.match_keyword(Keyword::Function) {
+            return self.parse_function_stmt(true, false, true, span);
+        }
+        if self.match_keyword(Keyword::If) {
+            return self.parse_comptime_if_stmt(span);
+        }
+        if self.match_keyword(Keyword::Switch) {
+            return self.parse_comptime_switch_stmt(span);
+        }
+        Err(self.error_here(
+            "expected `const`, `function`, `if`, or `switch` after `comptime`",
+        ))
+    }
+
     fn parse_type_alias_stmt(&mut self) -> Result<Stmt> {
         let start = self.current().span.start;
         let start_line = self.current().span.line;
@@ -230,7 +252,7 @@ impl<'src> Parser<'src> {
         }))
     }
 
-    fn parse_local_decl(&mut self, is_const: bool, span: Span) -> Result<Stmt> {
+    fn parse_local_decl(&mut self, is_const: bool, is_comptime: bool, span: Span) -> Result<Stmt> {
         let mut bindings = Vec::new();
         loop {
             let pattern = self.parse_pattern()?;
@@ -262,6 +284,7 @@ impl<'src> Parser<'src> {
         Ok(Stmt::Local(LocalDecl {
             span,
             is_const,
+            is_comptime,
             bindings,
             values,
         }))
@@ -368,6 +391,7 @@ impl<'src> Parser<'src> {
         &mut self,
         local_name: bool,
         is_task: bool,
+        is_comptime: bool,
         span: Span,
     ) -> Result<Stmt> {
         let name = if local_name {
@@ -392,6 +416,7 @@ impl<'src> Parser<'src> {
             span,
             local_name,
             is_task,
+            is_comptime,
             name,
             generics,
             params,
@@ -688,6 +713,13 @@ impl<'src> Parser<'src> {
         }))
     }
 
+    fn parse_comptime_if_stmt(&mut self, span: Span) -> Result<Stmt> {
+        let Stmt::If(if_stmt) = self.parse_if_stmt(span)? else {
+            unreachable!("parse_if_stmt always returns an if statement")
+        };
+        Ok(Stmt::ComptimeIf(if_stmt))
+    }
+
     fn parse_switch_stmt(&mut self, span: Span) -> Result<Stmt> {
         let value = self.parse_expr()?;
         let mut cases = Vec::new();
@@ -725,6 +757,13 @@ impl<'src> Parser<'src> {
             cases,
             default,
         }))
+    }
+
+    fn parse_comptime_switch_stmt(&mut self, span: Span) -> Result<Stmt> {
+        let Stmt::Switch(switch_stmt) = self.parse_switch_stmt(span)? else {
+            unreachable!("parse_switch_stmt always returns a switch statement")
+        };
+        Ok(Stmt::ComptimeSwitch(switch_stmt))
     }
 
     fn parse_match_stmt(&mut self, span: Span) -> Result<Stmt> {
@@ -1147,6 +1186,9 @@ impl<'src> Parser<'src> {
             self.expect_symbol(Symbol::LBrace)?;
             let table = self.parse_table_expr()?;
             return Ok(Expr::Freeze(Box::new(table)));
+        }
+        if self.match_keyword(Keyword::Comptime) {
+            return Ok(Expr::Comptime(Box::new(self.parse_expr_bp(10)?)));
         }
         if self.match_keyword(Keyword::Not) {
             return Ok(Expr::Unary {
@@ -1926,6 +1968,7 @@ impl<'src> Parser<'src> {
                 | TokenKind::Keyword(Keyword::Export)
                 | TokenKind::Keyword(Keyword::Case)
                 | TokenKind::Keyword(Keyword::Catch)
+                | TokenKind::Keyword(Keyword::Comptime)
                 | TokenKind::Keyword(Keyword::Default)
                 | TokenKind::Keyword(Keyword::End)
                 | TokenKind::Keyword(Keyword::Else)

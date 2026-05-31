@@ -1,4 +1,5 @@
 pub mod ast;
+pub mod comptime;
 pub mod compiler;
 pub mod config;
 pub mod emitter;

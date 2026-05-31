@@ -191,7 +191,21 @@ impl Emitter {
             }
             Stmt::Return(values, _) => self.emit_return(values, indent),
             Stmt::If(if_stmt) => self.emit_if_stmt(if_stmt, indent),
+            Stmt::ComptimeIf(_) => {
+                self.errors.push(
+                    "internal error: comptime if reached the emitter before expansion"
+                        .to_string(),
+                );
+                Ok(String::new())
+            }
             Stmt::Switch(switch_stmt) => self.emit_switch_stmt(switch_stmt, indent),
+            Stmt::ComptimeSwitch(_) => {
+                self.errors.push(
+                    "internal error: comptime switch reached the emitter before expansion"
+                        .to_string(),
+                );
+                Ok(String::new())
+            }
             Stmt::Match(match_stmt) => self.emit_match_stmt(match_stmt, indent),
             Stmt::While(while_stmt) => {
                 self.emit_while_stmt(&while_stmt.condition, &while_stmt.block, indent)
@@ -246,6 +260,13 @@ impl Emitter {
     }
 
     fn emit_local(&mut self, local: &LocalDecl, indent: usize) -> Result<String> {
+        if local.is_comptime {
+            self.errors.push(
+                "internal error: comptime const reached the emitter before expansion"
+                    .to_string(),
+            );
+            return Ok(String::new());
+        }
         let mut parts = Vec::new();
         let needs_destructure = local
             .bindings
@@ -680,6 +701,13 @@ impl Emitter {
     }
 
     fn emit_function_stmt(&mut self, function: &FunctionDecl, indent: usize) -> Result<String> {
+        if function.is_comptime {
+            self.errors.push(
+                "internal error: comptime function reached the emitter before expansion"
+                    .to_string(),
+            );
+            return Ok(String::new());
+        }
         if function.is_task {
             return self.emit_task_function_stmt(function, indent);
         }
@@ -1868,6 +1896,13 @@ impl Emitter {
             Expr::Bool(value) => Ok(self.simple_expr(if *value { "true" } else { "false" }, true)),
             Expr::Number(value) | Expr::String(value) => Ok(self.simple_expr(value, true)),
             Expr::Pattern(value) => Ok(self.simple_expr(&self.compile_pattern_literal(value)?, true)),
+            Expr::Comptime(_) => {
+                self.errors.push(
+                    "internal error: comptime expression reached the emitter before expansion"
+                        .to_string(),
+                );
+                Ok(self.simple_expr("nil", true))
+            }
             Expr::VarArg => Ok(self.simple_expr("...", true)),
             Expr::Name(name) if placeholder.is_some() && name == "_" => {
                 Ok(self.simple_expr(placeholder.unwrap(), true))
@@ -3995,6 +4030,7 @@ impl Emitter {
             },
             Expr::Function(_)
             | Expr::SignalHandler(_)
+            | Expr::Comptime(_)
             | Expr::Nil
             | Expr::Bool(_)
             | Expr::Number(_)
@@ -4170,7 +4206,9 @@ impl Emitter {
             Stmt::Call(_, span) => *span,
             Stmt::Return(_, span) => *span,
             Stmt::If(if_stmt) => if_stmt.span,
+            Stmt::ComptimeIf(if_stmt) => if_stmt.span,
             Stmt::Switch(switch_stmt) => switch_stmt.span,
+            Stmt::ComptimeSwitch(switch_stmt) => switch_stmt.span,
             Stmt::Match(match_stmt) => match_stmt.span,
             Stmt::While(while_stmt) => while_stmt.span,
             Stmt::Repeat(repeat_stmt) => repeat_stmt.span,

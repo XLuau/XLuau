@@ -8,6 +8,7 @@ use luau_parser::parser::Parser as LuauParser;
 use thiserror::Error;
 
 use crate::{
+    comptime::expand_program,
     config::XluauConfig,
     emitter::Emitter,
     formatter::format_luau,
@@ -277,7 +278,7 @@ impl Compiler {
 
         let tokens = Lexer::new(source).tokenize()?;
         let mut parser = Parser::new(source, tokens);
-        let program = parser.parse_program()?;
+        let program = expand_program(&parser.parse_program()?)?;
         let mut emitter = Emitter::with_options(
             self.config.luau_target.clone(),
             self.config.task_adapter == "roblox" || self.config.target == "roblox",
@@ -312,6 +313,7 @@ impl Compiler {
         tokens.iter().any(|token| match token.kind {
             crate::lexer::TokenKind::Keyword(
                 Keyword::Const
+                | Keyword::Comptime
                 | Keyword::Enum
                 | Keyword::Switch
                 | Keyword::Match

@@ -33,7 +33,9 @@ pub enum Stmt {
     Call(Expr, Span),
     Return(Vec<Expr>, Span),
     If(IfStmt),
+    ComptimeIf(IfStmt),
     Switch(SwitchStmt),
+    ComptimeSwitch(SwitchStmt),
     Match(MatchStmt),
     While(WhileStmt),
     Repeat(RepeatStmt),
@@ -151,6 +153,7 @@ pub struct EnumMember {
 pub struct LocalDecl {
     pub span: Span,
     pub is_const: bool,
+    pub is_comptime: bool,
     pub bindings: Vec<Binding>,
     pub values: Vec<Expr>,
 }
@@ -210,6 +213,7 @@ pub struct FunctionDecl {
     pub span: Span,
     pub local_name: bool,
     pub is_task: bool,
+    pub is_comptime: bool,
     pub name: FunctionName,
     pub generics: Option<String>,
     pub params: Vec<Param>,
@@ -323,6 +327,7 @@ pub enum Expr {
     Table(Vec<TableField>),
     Function(FunctionExpr),
     Freeze(Box<Expr>),
+    Comptime(Box<Expr>),
     Yield(Box<Expr>),
     IfElse {
         branches: Vec<(Expr, Expr)>,
