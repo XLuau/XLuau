@@ -1,0 +1,32 @@
+comptime const TARGET = "roblox"
+comptime const VERSION = "v1"
+
+comptime function makeEndpoint(version: string): string
+    return "/api/" .. version
+end
+
+comptime function makeSet(list)
+    local out = {}
+    for _, value in list do
+        out[value] = true
+    end
+    return freeze(out)
+end
+
+comptime if TARGET == "roblox" then
+    const SERVICE_NAME = "RunService"
+else
+    const SERVICE_NAME = "LoopService"
+end
+
+comptime switch TARGET
+    case "roblox"
+        const ADAPTER = "task"
+    default
+        const ADAPTER = "coroutine"
+end
+
+local endpoint = comptime makeEndpoint(VERSION)
+local propertySet = comptime makeSet({ "CFrame", "Size" })
+
+return endpoint, SERVICE_NAME, ADAPTER, propertySet

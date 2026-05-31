@@ -108,6 +108,11 @@ fn project_all_features_phase7() {
 }
 
 #[test]
+fn project_comptime() {
+    assert_fixture("comptime", "main.xl");
+}
+
+#[test]
 fn project_luau_passthrough() {
     assert_fixture("luau_passthrough", "main.luau");
 }
