@@ -32,7 +32,12 @@ This page documents the configuration shape currently described by the project a
   "bundlePath": "./packages.luau",
   "registry": "https://raw.githubusercontent.com/XLuau/XLpkg/master/index.json",
   "minify": true,
-  "deduplicateDeps": true
+  "deduplicateDeps": true,
+  "comptimeHttp": {
+    "enabled": false,
+    "allow": [],
+    "timeoutMs": 5000
+  }
 }
 ```
 
@@ -168,3 +173,33 @@ Whether package bundle generation should minify module bodies by default.
 ### `deduplicateDeps`
 
 Intended package bundling option for shared dependency handling.
+
+### `comptimeHttp`
+
+Optional compile-time HTTP settings used by the `httpGet(...)` comptime builtin.
+
+This feature is disabled by default.
+
+Example:
+
+```json
+{
+  "comptimeHttp": {
+    "enabled": true,
+    "allow": ["https://example.com/api/"],
+    "timeoutMs": 5000
+  }
+}
+```
+
+#### `comptimeHttp.enabled`
+
+Turns compile-time HTTP on for the project.
+
+#### `comptimeHttp.allow`
+
+List of allowed URL prefixes. A request must start with one of these prefixes or compilation fails.
+
+#### `comptimeHttp.timeoutMs`
+
+Blocking timeout, in milliseconds, for compile-time HTTP requests.

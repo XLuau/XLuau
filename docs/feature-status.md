@@ -62,6 +62,7 @@ These features are implemented and tested in the current Rust compiler:
 - `comptime if`
 - `comptime switch`
 - inline `comptime expression`
+- opt-in compile-time HTTP with `httpGet`
 - Source maps and line pragmas
 - `xluau remap`
 - `build --watch` and `check --watch`

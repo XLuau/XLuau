@@ -150,6 +150,7 @@ Builtins available at compile time:
 - `values`
 - `has`
 - `freeze`
+- `httpGet`
 - `upper`
 - `lower`
 - `replace`
@@ -169,6 +170,40 @@ comptime function upperName(name: string): string
 end
 ```
 
+## Opt-In HTTP
+
+Compile-time HTTP is available as an explicit opt-in extension.
+
+It is disabled by default and only supports `GET` requests through `httpGet(url)`.
+
+Example config:
+
+```json
+{
+  "comptimeHttp": {
+    "enabled": true,
+    "allow": ["https://example.com/api/"],
+    "timeoutMs": 5000
+  }
+}
+```
+
+Example usage:
+
+```lua
+comptime const RESPONSE = httpGet("https://example.com/api/version.txt")
+local version = comptime RESPONSE.body
+```
+
+`httpGet` returns a frozen table with:
+
+- `ok`
+- `status`
+- `url`
+- `body`
+
+Requests must match one of the configured `comptimeHttp.allow` prefixes.
+
 ## What Is Intentionally Not Supported
 
 This version does not support:
@@ -177,7 +212,6 @@ This version does not support:
 - AST quote/splice
 - compile-time `require`
 - compile-time Roblox APIs
-- compile-time HTTP
 - compile-time filesystem access
 - compile-time package installs
 - `os`, `io`, `debug`, or host process access
@@ -210,6 +244,12 @@ Typical diagnostic:
 
 ```txt
 Function 'os.clock' is not available at compile time.
+```
+
+Disabled compile-time HTTP is also reported clearly:
+
+```txt
+Compile-time HTTP is disabled. Enable `comptimeHttp.enabled` in xluau.config.json.
 ```
 
 `comptime if` conditions must be booleans:
