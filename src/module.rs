@@ -183,7 +183,7 @@ impl ModuleResolver {
                 emitted_require: format!(
                     "require({}).{}",
                     quote_string(&self.config.bundle_path),
-                    sanitize_identifier(&package_alias)
+                    sanitize_roblox_identifier(&package_alias)
                 ),
                 is_external: true,
             }));
@@ -436,9 +436,13 @@ impl ModuleResolver {
             expr.push_str(".Parent");
         }
 
-        for segment in module_id.components().filter_map(component_to_identifier) {
+        for segment in module_id
+            .components()
+            .filter_map(component_to_identifier)
+            .map(sanitize_roblox_identifier)
+        {
             expr.push('.');
-            expr.push_str(segment);
+            expr.push_str(&segment);
         }
 
         Ok(expr)
@@ -557,7 +561,7 @@ fn quote_string(text: &str) -> String {
     format!("\"{escaped}\"")
 }
 
-fn sanitize_identifier(text: &str) -> String {
+pub(crate) fn sanitize_roblox_identifier(text: &str) -> String {
     let mut output = String::new();
     for ch in text.chars() {
         if ch.is_ascii_alphanumeric() || ch == '_' {
@@ -565,6 +569,17 @@ fn sanitize_identifier(text: &str) -> String {
         } else {
             output.push('_');
         }
+    }
+    if output.is_empty() {
+        output.push('_');
+    }
+    if output
+        .chars()
+        .next()
+        .map(|ch| ch.is_ascii_digit())
+        .unwrap_or(false)
+    {
+        output.insert(0, '_');
     }
     output
 }

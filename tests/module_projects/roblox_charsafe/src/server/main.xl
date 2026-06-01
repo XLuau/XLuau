@@ -1,0 +1,3 @@
+local bridge = require("@bridge/localhost-client")
+
+return bridge

@@ -14,6 +14,7 @@ use crate::{
     emitter::Emitter,
     formatter::format_luau,
     lexer::{Keyword, Lexer, Symbol, Token},
+    module::sanitize_roblox_identifier,
     module::{ModuleResolver, detect_circular_dependencies},
     package_manager::ensure_bundle_for_project,
     parser::Parser,
@@ -288,7 +289,7 @@ impl Compiler {
             .project_rbxmx
             .root_name
             .clone()
-            .unwrap_or_else(|| self.project_name());
+            .unwrap_or_else(|| sanitize_roblox_identifier(&self.project_name()));
         let root_item = root.into_root_item(
             self.config
                 .roblox_output
@@ -608,7 +609,7 @@ impl Compiler {
         is_init: bool,
     ) -> Result<String> {
         if !is_init {
-            return Ok(stripped_stem.to_string());
+            return Ok(sanitize_roblox_identifier(stripped_stem));
         }
 
         if let Some(parent) = relative
@@ -616,10 +617,10 @@ impl Compiler {
             .and_then(|value| value.file_name())
             .and_then(|value| value.to_str())
         {
-            return Ok(parent.to_string());
+            return Ok(sanitize_roblox_identifier(parent));
         }
 
-        Ok(self.project_name())
+        Ok(sanitize_roblox_identifier(&self.project_name()))
     }
 
     fn insert_project_rbxmx_item(
@@ -638,7 +639,10 @@ impl Compiler {
                     relative.display()
                 ))
             })?;
-            node = node.children.entry(name.to_string()).or_default();
+            node = node
+                .children
+                .entry(sanitize_roblox_identifier(name))
+                .or_default();
         }
 
         let instance = RobloxProjectInstance {
@@ -1935,6 +1939,51 @@ const BASEPART_MAIN_SET = comptime makeSet(MAIN_PROPERTIES.BasePart)
     }
 
     #[test]
+    fn sanitizes_roblox_names_for_exports() {
+        let root = temp_project("roblox_rbxmx_charsafe");
+        write_file(
+            &root,
+            "xluau.config.json",
+            r#"{
+  "include": ["src/**/*.xl"],
+  "target": "roblox",
+  "robloxOutput": {
+    "projectRbxmx": {
+      "enabled": true
+    }
+  }
+}"#,
+        );
+        write_file(
+            &root,
+            "src/bridge-api/localhost-client.local.xl",
+            "return 1",
+        );
+
+        let compiler = Compiler::discover(&root).unwrap();
+        let artifact = compiler
+            .build_file(&root.join("src/bridge-api/localhost-client.local.xl"))
+            .unwrap();
+        let rbxmx = artifact.rbxmx.expect("rbxmx contents");
+        assert!(rbxmx.contains(r#"<string name="Name">localhost_client</string>"#));
+
+        let project = compiler
+            .build_project_rbxmx(&compiler.build_project().unwrap())
+            .unwrap()
+            .expect("project rbxmx");
+        assert!(
+            project
+                .rbxmx
+                .contains(r#"<string name="Name">bridge_api</string>"#)
+        );
+        assert!(
+            project
+                .rbxmx
+                .contains(r#"<string name="Name">localhost_client</string>"#)
+        );
+    }
+
+    #[test]
     fn builds_project_rbxmx_with_init_folders_and_custom_path() {
         let root = temp_project("roblox_project_rbxmx");
         write_file(
@@ -2049,6 +2098,10 @@ const BASEPART_MAIN_SET = comptime makeSet(MAIN_PROPERTIES.BasePart)
             .build_file(&root.join("src/bridge/messages.xl"))
             .unwrap();
 
-        assert!(artifact.output.ends_with(Path::new("generated/bridge/messages.luau")));
+        assert!(
+            artifact
+                .output
+                .ends_with(Path::new("generated/bridge/messages.luau"))
+        );
     }
 }

@@ -75,6 +75,11 @@ fn module_project_roblox_alias() {
 }
 
 #[test]
+fn module_project_roblox_charsafe() {
+    assert_module_fixture("roblox_charsafe", "src/server/main.xl");
+}
+
+#[test]
 fn module_project_custom_alias() {
     assert_module_fixture("custom_alias", "src/main.xl");
 }
