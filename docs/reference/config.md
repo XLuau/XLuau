@@ -71,6 +71,8 @@ Supported current values:
 
 This affects module path emission.
 
+For `"roblox"`, `build` also writes `.rbxmx` wrapper files alongside emitted `.luau` files.
+
 ### `customTargetFunction`
 
 Used when `target` is `"custom"`.

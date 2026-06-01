@@ -174,6 +174,14 @@ Emits instance-path requires such as:
 require(script.Parent.Parent.shared.math)
 ```
 
+When you run `build` for a Roblox target, XLuau also emits sibling `.rbxmx` files next to the generated `.luau` output.
+
+Current wrapper heuristic:
+
+- `src/server/main.xl` -> `Script`
+- `src/client/main.xl` -> `LocalScript`
+- everything else -> `ModuleScript`
+
 ### `custom`
 
 Calls your configured resolver function:
