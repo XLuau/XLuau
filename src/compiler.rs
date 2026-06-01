@@ -480,10 +480,10 @@ impl Compiler {
     }
 
     fn source_relative_path(&self, input: &Path) -> PathBuf {
-        input
-            .strip_prefix(self.root.join(&self.config.base_dir))
-            .or_else(|_| input.strip_prefix(&self.root))
-            .unwrap_or(input)
+        let root_relative = input.strip_prefix(&self.root).unwrap_or(input);
+        root_relative
+            .strip_prefix(&self.config.base_dir)
+            .unwrap_or(root_relative)
             .to_path_buf()
     }
 
@@ -2028,5 +2028,27 @@ const BASEPART_MAIN_SET = comptime makeSet(MAIN_PROPERTIES.BasePart)
 
         compiler.write_project_rbxmx(&project).unwrap();
         assert!(project.output.is_file());
+    }
+
+    #[test]
+    fn strips_base_dir_from_emitted_output_paths() {
+        let root = temp_project("base_dir_output_paths");
+        write_file(
+            &root,
+            "xluau.config.json",
+            r#"{
+  "include": ["src/**/*.xl"],
+  "outDir": "generated",
+  "baseDir": "src"
+}"#,
+        );
+        write_file(&root, "src/bridge/messages.xl", "return 1");
+
+        let compiler = Compiler::discover(&root).unwrap();
+        let artifact = compiler
+            .build_file(&root.join("src/bridge/messages.xl"))
+            .unwrap();
+
+        assert!(artifact.output.ends_with(Path::new("generated/bridge/messages.luau")));
     }
 }
