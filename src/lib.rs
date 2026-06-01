@@ -1,6 +1,6 @@
 pub mod ast;
-pub mod comptime;
 pub mod compiler;
+pub mod comptime;
 pub mod config;
 pub mod emitter;
 pub mod formatter;

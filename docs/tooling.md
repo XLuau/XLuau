@@ -174,13 +174,18 @@ Emits instance-path requires such as:
 require(script.Parent.Parent.shared.math)
 ```
 
-When you run `build` for a Roblox target, XLuau also emits sibling `.rbxmx` files next to the generated `.luau` output.
+When you run `build` for a Roblox target, XLuau can emit sibling `.rbxmx` files next to generated `.luau` output, plus an optional project-wide `.rbxmx` tree export.
 
-Current wrapper heuristic:
+Default wrapper heuristic:
 
-- `src/server/main.xl` -> `Script`
-- `src/client/main.xl` -> `LocalScript`
-- everything else -> `ModuleScript`
+- `*.server.xl` -> `Script` with `RunContext = Server`
+- `*.legacy.xl` -> `Script` with `RunContext = Legacy`
+- `*.client.xl` -> `Script` with `RunContext = Client`
+- `*.local.xl` -> `LocalScript`
+- `*.xl` -> `ModuleScript`
+- `init*.xl` uses the parent folder name, so the folder becomes the script/module and its children are parented under it in project exports
+
+Generated output also preserves the source tree relative to `baseDir`, so `src/foo/bar.xl` becomes `out/foo/bar.luau` by default instead of `out/src/foo/bar.luau`.
 
 ### `custom`
 

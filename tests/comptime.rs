@@ -13,10 +13,13 @@ fn comptime_rejects_runtime_value_capture() {
 local x = getValue()
 comptime const y = x
 "#;
-    let err = compiler().compile_source(source).expect_err("compile-time error");
-    assert!(err
-        .to_string()
-        .contains("Cannot use runtime local 'x' in a compile-time expression."));
+    let err = compiler()
+        .compile_source(source)
+        .expect_err("compile-time error");
+    assert!(
+        err.to_string()
+            .contains("Cannot use runtime local 'x' in a compile-time expression.")
+    );
 }
 
 #[test]
@@ -24,10 +27,13 @@ fn comptime_rejects_unsupported_host_call() {
     let source = r#"
 comptime const now = os.clock()
 "#;
-    let err = compiler().compile_source(source).expect_err("compile-time error");
-    assert!(err
-        .to_string()
-        .contains("Function 'os.clock' is not available at compile time."));
+    let err = compiler()
+        .compile_source(source)
+        .expect_err("compile-time error");
+    assert!(
+        err.to_string()
+            .contains("Function 'os.clock' is not available at compile time.")
+    );
 }
 
 #[test]
@@ -37,8 +43,11 @@ comptime if "yes" then
     print("bad")
 end
 "#;
-    let err = compiler().compile_source(source).expect_err("compile-time error");
-    assert!(err
-        .to_string()
-        .contains("comptime if condition must evaluate to a boolean."));
+    let err = compiler()
+        .compile_source(source)
+        .expect_err("compile-time error");
+    assert!(
+        err.to_string()
+            .contains("comptime if condition must evaluate to a boolean.")
+    );
 }

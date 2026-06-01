@@ -60,6 +60,8 @@ pub struct XluauConfig {
     pub deduplicate_deps: bool,
     #[serde(default)]
     pub comptime_http: ComptimeHttpConfig,
+    #[serde(default)]
+    pub roblox_output: RobloxOutputConfig,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -71,6 +73,43 @@ pub struct ComptimeHttpConfig {
     pub allow: Vec<String>,
     #[serde(default = "default_comptime_http_timeout_ms")]
     pub timeout_ms: u64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RobloxOutputConfig {
+    #[serde(default = "default_true")]
+    pub emit_rbxmx: bool,
+    #[serde(default)]
+    pub suffixes: RobloxSuffixConfig,
+    #[serde(default)]
+    pub project_rbxmx: RobloxProjectRbxmxConfig,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RobloxSuffixConfig {
+    #[serde(default = "default_roblox_server_suffix")]
+    pub server: String,
+    #[serde(default = "default_roblox_legacy_suffix")]
+    pub legacy: String,
+    #[serde(default = "default_roblox_client_suffix")]
+    pub client: String,
+    #[serde(default = "default_roblox_local_suffix")]
+    pub local: String,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RobloxProjectRbxmxConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub path: Option<PathBuf>,
+    #[serde(default)]
+    pub root_name: Option<String>,
+    #[serde(default = "default_roblox_project_root_class")]
+    pub root_class_name: String,
 }
 
 impl Default for XluauConfig {
@@ -101,6 +140,28 @@ impl Default for XluauConfig {
             minify: default_true(),
             deduplicate_deps: default_true(),
             comptime_http: ComptimeHttpConfig::default(),
+            roblox_output: RobloxOutputConfig::default(),
+        }
+    }
+}
+
+impl Default for RobloxOutputConfig {
+    fn default() -> Self {
+        Self {
+            emit_rbxmx: default_true(),
+            suffixes: RobloxSuffixConfig::default(),
+            project_rbxmx: RobloxProjectRbxmxConfig::default(),
+        }
+    }
+}
+
+impl Default for RobloxSuffixConfig {
+    fn default() -> Self {
+        Self {
+            server: default_roblox_server_suffix(),
+            legacy: default_roblox_legacy_suffix(),
+            client: default_roblox_client_suffix(),
+            local: default_roblox_local_suffix(),
         }
     }
 }
@@ -182,4 +243,24 @@ fn default_registry() -> String {
 
 fn default_comptime_http_timeout_ms() -> u64 {
     5_000
+}
+
+fn default_roblox_server_suffix() -> String {
+    ".server".to_string()
+}
+
+fn default_roblox_legacy_suffix() -> String {
+    ".legacy".to_string()
+}
+
+fn default_roblox_client_suffix() -> String {
+    ".client".to_string()
+}
+
+fn default_roblox_local_suffix() -> String {
+    ".local".to_string()
+}
+
+fn default_roblox_project_root_class() -> String {
+    "Folder".to_string()
 }

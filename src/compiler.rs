@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
 };
@@ -38,9 +39,58 @@ struct CompiledOutput {
 }
 
 #[derive(Debug)]
+pub struct ProjectRbxmxArtifact {
+    pub output: PathBuf,
+    pub rbxmx: String,
+}
+
+#[derive(Debug)]
 pub struct Compiler {
     pub root: PathBuf,
     pub config: XluauConfig,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RobloxRunContext {
+    Legacy,
+    Server,
+    Client,
+}
+
+#[derive(Debug, Clone)]
+struct RobloxInstanceKind {
+    class_name: String,
+    run_context: Option<RobloxRunContext>,
+}
+
+#[derive(Debug, Clone)]
+struct RobloxSourceSpec {
+    instance: RobloxInstanceKind,
+    instance_name: String,
+    is_init: bool,
+}
+
+#[derive(Debug, Clone)]
+struct RobloxProjectInstance {
+    class_name: String,
+    name: String,
+    run_context: Option<RobloxRunContext>,
+    source: String,
+}
+
+#[derive(Debug, Default)]
+struct RobloxProjectNode {
+    instance: Option<RobloxProjectInstance>,
+    children: BTreeMap<String, RobloxProjectNode>,
+}
+
+#[derive(Debug, Clone)]
+struct RobloxXmlItem {
+    class_name: String,
+    name: String,
+    run_context: Option<RobloxRunContext>,
+    source: Option<String>,
+    children: Vec<RobloxXmlItem>,
 }
 
 #[derive(Debug, Error)]
@@ -79,7 +129,9 @@ impl Compiler {
     }
 
     pub fn compile_source(&self, source: &str) -> Result<String> {
-        Ok(self.compile_source_with_path(source, Path::new("<memory>"))?.luau)
+        Ok(self
+            .compile_source_with_path(source, Path::new("<memory>"))?
+            .luau)
     }
 
     pub fn compile_source_at_path(&self, source: &str, path: &Path) -> Result<String> {
@@ -101,10 +153,10 @@ impl Compiler {
         let compiled = self.compile_source_with_path(&source, &input)?;
         let output = self.output_path_for(&input)?;
         let rbxmx_output = self
-            .is_roblox_target()
+            .should_emit_file_rbxmx()
             .then(|| self.rbxmx_output_path_for(&input))
             .transpose()?;
-        let rbxmx = if self.is_roblox_target() {
+        let rbxmx = if self.should_emit_file_rbxmx() {
             Some(self.build_rbxmx_document(&input, &compiled.luau)?)
         } else {
             None
@@ -133,10 +185,10 @@ impl Compiler {
             let compiled = self.compile_source_with_path(&source, &path)?;
             let output = self.output_path_for(&path)?;
             let rbxmx_output = self
-                .is_roblox_target()
+                .should_emit_file_rbxmx()
                 .then(|| self.rbxmx_output_path_for(&path))
                 .transpose()?;
-            let rbxmx = if self.is_roblox_target() {
+            let rbxmx = if self.should_emit_file_rbxmx() {
                 Some(self.build_rbxmx_document(&path, &compiled.luau)?)
             } else {
                 None
@@ -176,6 +228,7 @@ impl Compiler {
                 files.push(path);
             }
         }
+        files.sort();
         Ok(files)
     }
 
@@ -214,12 +267,62 @@ impl Compiler {
         Ok(())
     }
 
+    pub fn build_project_rbxmx(
+        &self,
+        artifacts: &[BuildArtifact],
+    ) -> Result<Option<ProjectRbxmxArtifact>> {
+        if !self.should_emit_project_rbxmx() {
+            return Ok(None);
+        }
+
+        let mut root = RobloxProjectNode::default();
+        for artifact in artifacts {
+            let relative = self.source_relative_path(&artifact.input);
+            let spec = self.roblox_source_spec(&relative)?;
+            self.insert_project_rbxmx_item(&mut root, &relative, &spec, &artifact.luau)?;
+        }
+
+        let root_name = self
+            .config
+            .roblox_output
+            .project_rbxmx
+            .root_name
+            .clone()
+            .unwrap_or_else(|| self.project_name());
+        let root_item = root.into_root_item(
+            self.config
+                .roblox_output
+                .project_rbxmx
+                .root_class_name
+                .clone(),
+            root_name,
+        );
+
+        Ok(Some(ProjectRbxmxArtifact {
+            output: self.project_rbxmx_output_path(),
+            rbxmx: self.render_rbxmx_document(&root_item),
+        }))
+    }
+
+    pub fn write_project_rbxmx(&self, artifact: &ProjectRbxmxArtifact) -> Result<()> {
+        if let Some(parent) = artifact.output.parent() {
+            fs::create_dir_all(parent).map_err(|source| CompilerError::Io {
+                path: parent.to_path_buf(),
+                source,
+            })?;
+        }
+        fs::write(&artifact.output, &artifact.rbxmx).map_err(|source| CompilerError::Io {
+            path: artifact.output.clone(),
+            source,
+        })?;
+        Ok(())
+    }
+
     fn output_path_for(&self, input: &Path) -> Result<PathBuf> {
-        let relative = input
-            .strip_prefix(&self.root)
-            .or_else(|_| input.strip_prefix(self.root.join(&self.config.base_dir)))
-            .unwrap_or(input);
-        let mut output = self.root.join(&self.config.out_dir).join(relative);
+        let mut output = self
+            .root
+            .join(&self.config.out_dir)
+            .join(self.source_relative_path(input));
         output.set_extension("luau");
         Ok(output)
     }
@@ -264,7 +367,9 @@ impl Compiler {
     fn validation_shadow_is_valid(source: &str) -> bool {
         let shadow = Self::sanitize_readonly_type_fields(source);
         shadow != source
-            && (Self::parse_luau(&shadow, "<memory:shadow>").errors.is_empty()
+            && (Self::parse_luau(&shadow, "<memory:shadow>")
+                .errors
+                .is_empty()
                 || Self::wrapped_chunk_is_valid(&shadow))
     }
 
@@ -304,14 +409,15 @@ impl Compiler {
             .ok()
             .map(|tokens| self.contains_xluau_tokens(&tokens))
             .unwrap_or(false);
-        let emitted_file = self.output_path_for(path).unwrap_or_else(|_| PathBuf::from("<memory>.luau"));
+        let emitted_file = self
+            .output_path_for(path)
+            .unwrap_or_else(|_| PathBuf::from("<memory>.luau"));
         let source_name = path.to_string_lossy().replace('\\', "/");
         if !should_force_xluau && self.validate_luau(&rewritten_source).is_ok() {
             let formatted = format_luau(&rewritten_source)?;
-            let source_map = self
-                .config
-                .source_maps
-                .then(|| finalize_output(&formatted, self.config.line_pragmas, path, &emitted_file).1);
+            let source_map = self.config.source_maps.then(|| {
+                finalize_output(&formatted, self.config.line_pragmas, path, &emitted_file).1
+            });
             return Ok(CompiledOutput {
                 luau: formatted,
                 source_map,
@@ -336,12 +442,8 @@ impl Compiler {
         let rewritten_output = resolver.rewrite_requires(&raw, path)?;
         self.validate_luau(&rewritten_output)?;
         let formatted = format_luau(&rewritten_output)?;
-        let (luau, source_map) = finalize_output(
-            &formatted,
-            self.config.line_pragmas,
-            path,
-            &emitted_file,
-        );
+        let (luau, source_map) =
+            finalize_output(&formatted, self.config.line_pragmas, path, &emitted_file);
         Ok(CompiledOutput {
             luau,
             source_map: self.config.source_maps.then_some(source_map),
@@ -357,80 +459,268 @@ impl Compiler {
     }
 
     fn build_rbxmx_document(&self, input: &Path, luau: &str) -> Result<String> {
-        let class_name = self.roblox_instance_class_for(input)?;
-        let script_name = self.roblox_instance_name_for(input)?;
-        Ok(format!(
-            concat!(
-                "<roblox xmlns:xmime=\"http://www.w3.org/2005/05/xmlmime\" ",
-                "xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" ",
-                "xsi:noNamespaceSchemaLocation=\"http://www.roblox.com/roblox.xsd\" version=\"4\">\n",
-                "    <Item class=\"{class_name}\" referent=\"RBX0\">\n",
-                "        <Properties>\n",
-                "            <string name=\"Name\">{script_name}</string>\n",
-                "            <ProtectedString name=\"Source\">{source}</ProtectedString>\n",
-                "        </Properties>\n",
-                "    </Item>\n",
-                "</roblox>\n"
-            ),
-            class_name = xml_escape(&class_name),
-            script_name = xml_escape(&script_name),
-            source = xml_escape(luau),
-        ))
-    }
-
-    fn roblox_instance_class_for(&self, input: &Path) -> Result<String> {
-        let relative = input
-            .strip_prefix(&self.root.join(&self.config.base_dir))
-            .or_else(|_| input.strip_prefix(&self.root))
-            .unwrap_or(input);
-        let first = relative
-            .components()
-            .next()
-            .and_then(|component| component.as_os_str().to_str())
-            .unwrap_or_default()
-            .to_ascii_lowercase();
-        let file_stem = input
-            .file_stem()
-            .and_then(|value| value.to_str())
-            .unwrap_or_default()
-            .to_ascii_lowercase();
-
-        let class_name = if file_stem == "main" && first == "server" {
-            "Script"
-        } else if file_stem == "main" && first == "client" {
-            "LocalScript"
-        } else {
-            "ModuleScript"
+        let relative = self.source_relative_path(input);
+        let spec = self.roblox_source_spec(&relative)?;
+        let item = RobloxXmlItem {
+            class_name: spec.instance.class_name,
+            name: spec.instance_name,
+            run_context: spec.instance.run_context,
+            source: Some(luau.to_string()),
+            children: Vec::new(),
         };
-        Ok(class_name.to_string())
+        Ok(self.render_rbxmx_document(&item))
     }
 
-    fn roblox_instance_name_for(&self, input: &Path) -> Result<String> {
-        let stem = input
+    fn should_emit_file_rbxmx(&self) -> bool {
+        self.is_roblox_target() && self.config.roblox_output.emit_rbxmx
+    }
+
+    fn should_emit_project_rbxmx(&self) -> bool {
+        self.is_roblox_target() && self.config.roblox_output.project_rbxmx.enabled
+    }
+
+    fn source_relative_path(&self, input: &Path) -> PathBuf {
+        input
+            .strip_prefix(self.root.join(&self.config.base_dir))
+            .or_else(|_| input.strip_prefix(&self.root))
+            .unwrap_or(input)
+            .to_path_buf()
+    }
+
+    fn project_name(&self) -> String {
+        self.root
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("project")
+            .to_string()
+    }
+
+    fn project_rbxmx_output_path(&self) -> PathBuf {
+        self.config
+            .roblox_output
+            .project_rbxmx
+            .path
+            .as_ref()
+            .map(|path| {
+                if path.is_absolute() {
+                    path.clone()
+                } else {
+                    self.root.join(path)
+                }
+            })
+            .unwrap_or_else(|| {
+                self.root
+                    .join(&self.config.out_dir)
+                    .join(format!("{}.rbxmx", self.project_name()))
+            })
+    }
+
+    fn roblox_source_spec(&self, relative: &Path) -> Result<RobloxSourceSpec> {
+        let stem = relative
             .file_stem()
             .and_then(|value| value.to_str())
             .ok_or_else(|| {
                 CompilerError::Other(format!(
                     "invalid source filename for Roblox output: {}",
-                    input.display()
+                    relative.display()
                 ))
             })?;
+        let (instance, stripped_stem) = self.roblox_instance_kind_for_stem(stem)?;
+        let is_init = self
+            .config
+            .index_files
+            .iter()
+            .any(|index| index.eq_ignore_ascii_case(&stripped_stem));
+        let instance_name = self.roblox_instance_name_for(relative, &stripped_stem, is_init)?;
+        Ok(RobloxSourceSpec {
+            instance,
+            instance_name,
+            is_init,
+        })
+    }
 
-        if self.config.index_files.iter().any(|index| index == stem) {
-            let parent = input
-                .parent()
-                .and_then(|value| value.file_name())
-                .and_then(|value| value.to_str())
-                .ok_or_else(|| {
-                    CompilerError::Other(format!(
-                        "cannot derive Roblox script name for index file {}",
-                        input.display()
-                    ))
-                })?;
-            Ok(parent.to_string())
-        } else {
-            Ok(stem.to_string())
+    fn roblox_instance_kind_for_stem(&self, stem: &str) -> Result<(RobloxInstanceKind, String)> {
+        let stem = stem.to_string();
+        let mut matched: Option<(usize, RobloxInstanceKind, String)> = None;
+        for (suffix, class_name, run_context) in [
+            (
+                self.config.roblox_output.suffixes.server.as_str(),
+                "Script",
+                Some(RobloxRunContext::Server),
+            ),
+            (
+                self.config.roblox_output.suffixes.legacy.as_str(),
+                "Script",
+                Some(RobloxRunContext::Legacy),
+            ),
+            (
+                self.config.roblox_output.suffixes.client.as_str(),
+                "Script",
+                Some(RobloxRunContext::Client),
+            ),
+            (
+                self.config.roblox_output.suffixes.local.as_str(),
+                "LocalScript",
+                None,
+            ),
+        ] {
+            if suffix.is_empty() || !stem.ends_with(suffix) {
+                continue;
+            }
+            let stripped = stem[..stem.len() - suffix.len()].to_string();
+            if stripped.is_empty() {
+                return Err(CompilerError::Other(format!(
+                    "invalid Roblox source filename `{stem}` for suffix `{suffix}`"
+                )));
+            }
+            let candidate = (
+                suffix.len(),
+                RobloxInstanceKind {
+                    class_name: class_name.to_string(),
+                    run_context,
+                },
+                stripped,
+            );
+            if matched
+                .as_ref()
+                .map(|(length, _, _)| candidate.0 > *length)
+                .unwrap_or(true)
+            {
+                matched = Some(candidate);
+            }
         }
+
+        Ok(matched
+            .map(|(_, instance, stripped)| (instance, stripped))
+            .unwrap_or((
+                RobloxInstanceKind {
+                    class_name: "ModuleScript".to_string(),
+                    run_context: None,
+                },
+                stem,
+            )))
+    }
+
+    fn roblox_instance_name_for(
+        &self,
+        relative: &Path,
+        stripped_stem: &str,
+        is_init: bool,
+    ) -> Result<String> {
+        if !is_init {
+            return Ok(stripped_stem.to_string());
+        }
+
+        if let Some(parent) = relative
+            .parent()
+            .and_then(|value| value.file_name())
+            .and_then(|value| value.to_str())
+        {
+            return Ok(parent.to_string());
+        }
+
+        Ok(self.project_name())
+    }
+
+    fn insert_project_rbxmx_item(
+        &self,
+        root: &mut RobloxProjectNode,
+        relative: &Path,
+        spec: &RobloxSourceSpec,
+        luau: &str,
+    ) -> Result<()> {
+        let parent = relative.parent().unwrap_or_else(|| Path::new(""));
+        let mut node = root;
+        for component in parent.components() {
+            let name = component.as_os_str().to_str().ok_or_else(|| {
+                CompilerError::Other(format!(
+                    "unsupported Roblox project path: {}",
+                    relative.display()
+                ))
+            })?;
+            node = node.children.entry(name.to_string()).or_default();
+        }
+
+        let instance = RobloxProjectInstance {
+            class_name: spec.instance.class_name.clone(),
+            name: spec.instance_name.clone(),
+            run_context: spec.instance.run_context,
+            source: luau.to_string(),
+        };
+
+        if spec.is_init {
+            if node.instance.is_some() {
+                return Err(CompilerError::Other(format!(
+                    "duplicate Roblox init output for {}",
+                    relative.display()
+                )));
+            }
+            node.instance = Some(instance);
+            return Ok(());
+        }
+
+        let child = node.children.entry(spec.instance_name.clone()).or_default();
+        if child.instance.is_some() || !child.children.is_empty() {
+            return Err(CompilerError::Other(format!(
+                "conflicting Roblox output path for {}",
+                relative.display()
+            )));
+        }
+        child.instance = Some(instance);
+        Ok(())
+    }
+
+    fn render_rbxmx_document(&self, root: &RobloxXmlItem) -> String {
+        let mut xml = String::from(concat!(
+            "<roblox xmlns:xmime=\"http://www.w3.org/2005/05/xmlmime\" ",
+            "xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" ",
+            "xsi:noNamespaceSchemaLocation=\"http://www.roblox.com/roblox.xsd\" version=\"4\">\n"
+        ));
+        let mut next_referent = 0usize;
+        self.render_rbxmx_item(root, 1, &mut next_referent, &mut xml);
+        xml.push_str("</roblox>\n");
+        xml
+    }
+
+    fn render_rbxmx_item(
+        &self,
+        item: &RobloxXmlItem,
+        indent_level: usize,
+        next_referent: &mut usize,
+        xml: &mut String,
+    ) {
+        let indent = "    ".repeat(indent_level);
+        let property_indent = "    ".repeat(indent_level + 1);
+        let value_indent = "    ".repeat(indent_level + 2);
+        let referent = format!("RBX{}", *next_referent);
+        *next_referent += 1;
+
+        xml.push_str(&format!(
+            "{indent}<Item class=\"{}\" referent=\"{referent}\">\n",
+            xml_escape(&item.class_name)
+        ));
+        xml.push_str(&format!("{property_indent}<Properties>\n"));
+        xml.push_str(&format!(
+            "{value_indent}<string name=\"Name\">{}</string>\n",
+            xml_escape(&item.name)
+        ));
+        if let Some(run_context) = item.run_context {
+            xml.push_str(&format!(
+                "{value_indent}<token name=\"RunContext\">{}</token>\n",
+                run_context.token_value()
+            ));
+        }
+        if let Some(source) = &item.source {
+            xml.push_str(&format!(
+                "{value_indent}<ProtectedString name=\"Source\">{}</ProtectedString>\n",
+                xml_escape(source)
+            ));
+        }
+        xml.push_str(&format!("{property_indent}</Properties>\n"));
+        for child in &item.children {
+            self.render_rbxmx_item(child, indent_level + 1, next_referent, xml);
+        }
+        xml.push_str(&format!("{indent}</Item>\n"));
     }
 
     fn check_cycles(&self, entry_points: &[PathBuf]) -> Result<()> {
@@ -462,12 +752,72 @@ impl Compiler {
                 | Keyword::Watch,
             ) => true,
             crate::lexer::TokenKind::Symbol(
-                Symbol::DoubleQuestion
-                | Symbol::DoubleQuestionEqual
-                | Symbol::PipeGreater,
+                Symbol::DoubleQuestion | Symbol::DoubleQuestionEqual | Symbol::PipeGreater,
             ) => true,
             _ => false,
         })
+    }
+}
+
+impl RobloxRunContext {
+    fn token_value(self) -> u8 {
+        match self {
+            Self::Legacy => 0,
+            Self::Server => 1,
+            Self::Client => 2,
+        }
+    }
+}
+
+impl RobloxProjectNode {
+    fn into_root_item(self, fallback_class_name: String, fallback_name: String) -> RobloxXmlItem {
+        let children = self
+            .children
+            .into_iter()
+            .map(|(name, child)| child.into_xml_item(name))
+            .collect();
+        if let Some(instance) = self.instance {
+            RobloxXmlItem {
+                class_name: instance.class_name,
+                name: fallback_name,
+                run_context: instance.run_context,
+                source: Some(instance.source),
+                children,
+            }
+        } else {
+            RobloxXmlItem {
+                class_name: fallback_class_name,
+                name: fallback_name,
+                run_context: None,
+                source: None,
+                children,
+            }
+        }
+    }
+
+    fn into_xml_item(self, fallback_name: String) -> RobloxXmlItem {
+        let children = self
+            .children
+            .into_iter()
+            .map(|(name, child)| child.into_xml_item(name))
+            .collect();
+        if let Some(instance) = self.instance {
+            RobloxXmlItem {
+                class_name: instance.class_name,
+                name: instance.name,
+                run_context: instance.run_context,
+                source: Some(instance.source),
+                children,
+            }
+        } else {
+            RobloxXmlItem {
+                class_name: "Folder".to_string(),
+                name: fallback_name,
+                run_context: None,
+                source: None,
+                children,
+            }
+        }
     }
 }
 
@@ -546,7 +896,10 @@ return {
     "http": "file:{}"
   }}
 }}"#,
-                root.join("index.json").display().to_string().replace('\\', "\\\\"),
+                root.join("index.json")
+                    .display()
+                    .to_string()
+                    .replace('\\', "\\\\"),
                 package_repo.display().to_string().replace('\\', "\\\\")
             ),
         );
@@ -974,7 +1327,9 @@ local empty = makeEmpty::<{ x: number, y: number }>()
 local user = fetch::<User>("/api/user")
 "#;
         let output = compiler().compile_source(source).unwrap();
-        assert!(output.contains("local function max<T>(a: (T & Comparable), b: (T & Comparable)): T"));
+        assert!(
+            output.contains("local function max<T>(a: (T & Comparable), b: (T & Comparable)): T")
+        );
         assert!(output.contains("((makeEmpty :: () -> { x: number, y: number }))()"));
         assert!(output.contains("((fetch :: (string) -> Result<User, string>))(\"/api/user\")"));
     }
@@ -1010,15 +1365,21 @@ const DEFAULTS = freeze {
 type Defaults = Readonly<typeof(DEFAULTS)>
 "#;
         let output = compiler().compile_source(source).unwrap();
-        assert!(output.contains("type Config = {\n    read host: string,\n    port: number,\n    timeout: number?,\n}"));
+        assert!(output.contains(
+            "type Config = {\n    read host: string,\n    port: number,\n    timeout: number?,\n}"
+        ));
         assert!(output.contains("type PartialConfig = {\n    read host: string?,\n    port: number?,\n    timeout: number?,\n}"));
-        assert!(output.contains("type HostConfig = {\n    read host: string,\n    port: number,\n}"));
+        assert!(
+            output.contains("type HostConfig = {\n    read host: string,\n    port: number,\n}")
+        );
         assert!(output.contains("type Flags = { debug: boolean, verbose: boolean }"));
         assert!(output.contains("type Present = \"ok\" | \"err\""));
         assert!(output.contains("type UserResult = User"));
         assert!(output.contains("type FetchParams = (string, number)"));
         assert!(output.contains("type RetrySnapshot = {\n    read timeout: number?,\n}"));
-        assert!(output.contains("local DEFAULTS = table.freeze({timeout = 30, retries = 3, host = \"localhost\"})"));
+        assert!(output.contains(
+            "local DEFAULTS = table.freeze({timeout = 30, retries = 3, host = \"localhost\"})"
+        ));
         assert!(output.contains("type Defaults = {\n    read timeout: number,\n    read retries: number,\n    read host: string,\n}"));
     }
 
@@ -1070,7 +1431,9 @@ type HeroCtor = ReturnType<typeof(Hero.new)>
 type HeroLabelArgs = Parameters<typeof(Hero.label)>
 "#;
         let output = compiler().compile_source(source).unwrap();
-        assert!(output.contains("type Hero = { name: string, label: (self: Hero, string) -> string }"));
+        assert!(
+            output.contains("type Hero = { name: string, label: (self: Hero, string) -> string }")
+        );
         assert!(output.contains("type HeroCtor = Hero"));
         assert!(output.contains("type HeroLabelArgs = (Hero, string)"));
     }
@@ -1110,14 +1473,18 @@ object Dog extends Animal
 end
 "#;
         let output = compiler().compile_source(source).unwrap();
-        assert!(output.contains("type Animal = { name: string, sound: string, speak: (self: Animal) -> string }"));
+        assert!(output.contains(
+            "type Animal = { name: string, sound: string, speak: (self: Animal) -> string }"
+        ));
         assert!(output.contains("local Animal = {}"));
         assert!(output.contains("Animal.__index = Animal"));
         assert!(output.contains("function Animal.new(name: string, sound: string): Animal"));
         assert!(output.contains("local self = setmetatable({} :: Animal, Animal)"));
         assert!(output.contains("function Animal:speak(): string"));
         assert!(output.contains("function Animal.create(name: string): Animal"));
-        assert!(output.contains("type Dog = Animal & { breed: string, speak: (self: Dog) -> string }"));
+        assert!(
+            output.contains("type Dog = Animal & { breed: string, speak: (self: Dog) -> string }")
+        );
         assert!(output.contains("setmetatable(Dog, { __index = Animal })"));
         assert!(output.contains("local self = Animal.new(name, \"Woof\") :: Dog"));
         assert!(output.contains("setmetatable(self, Dog)"));
@@ -1300,7 +1667,7 @@ local year, month, day = date:match(pattern`{year:%d+}-{month:%d+}-{day:%d+}`)
         let map = artifact.source_map.unwrap();
         assert_eq!(map.version, 1);
         assert!(map.source_file.ends_with("src/main.xl"));
-        assert!(map.emitted_file.ends_with("out/src/main.luau"));
+        assert!(map.emitted_file.ends_with("out/main.luau"));
         assert!(!map.mappings.is_empty());
     }
 
@@ -1394,7 +1761,9 @@ local x = getValue()
 comptime const y = x
 "#;
         let err = compiler().compile_source(source).unwrap_err();
-        assert!(format!("{err}").contains("Cannot use runtime local 'x' in a compile-time expression."));
+        assert!(
+            format!("{err}").contains("Cannot use runtime local 'x' in a compile-time expression.")
+        );
     }
 
     #[test]
@@ -1446,7 +1815,7 @@ const BASEPART_MAIN_SET = comptime makeSet(MAIN_PROPERTIES.BasePart)
     }
 
     #[test]
-    fn writes_rbxmx_artifacts_for_roblox_target() {
+    fn uses_roblox_suffix_defaults_for_file_exports() {
         let root = temp_project("roblox_rbxmx");
         write_file(
             &root,
@@ -1458,24 +1827,59 @@ const BASEPART_MAIN_SET = comptime makeSet(MAIN_PROPERTIES.BasePart)
         );
         write_file(
             &root,
-            "src/server/main.xl",
+            "src/bootstrap.server.xl",
             "return script.Name .. \" < \" .. script.ClassName",
         );
+        write_file(&root, "src/player.local.xl", "return script.Name");
+        write_file(&root, "src/compat.legacy.xl", "return script.Name");
+        write_file(&root, "src/shared.xl", "return script.Name");
 
         let compiler = Compiler::discover(&root).unwrap();
         let artifact = compiler
-            .build_file(&root.join("src/server/main.xl"))
+            .build_file(&root.join("src/bootstrap.server.xl"))
             .unwrap();
         let rbxmx_path = artifact.rbxmx_output.clone().expect("rbxmx path");
         let rbxmx = artifact.rbxmx.clone().expect("rbxmx contents");
-        assert!(rbxmx_path.ends_with(Path::new("out/src/server/main.rbxmx")));
+        assert!(
+            artifact
+                .output
+                .ends_with(Path::new("out/bootstrap.server.luau"))
+        );
+        assert!(rbxmx_path.ends_with(Path::new("out/bootstrap.server.rbxmx")));
         assert!(rbxmx.contains(r#"<Item class="Script" referent="RBX0">"#));
-        assert!(rbxmx.contains(r#"<string name="Name">main</string>"#));
+        assert!(rbxmx.contains(r#"<string name="Name">bootstrap</string>"#));
+        assert!(rbxmx.contains(r#"<token name="RunContext">1</token>"#));
         assert!(rbxmx.contains("return script.Name .. &quot; &lt; &quot; .. script.ClassName"));
 
         compiler.write_artifact(&artifact).unwrap();
         assert!(artifact.output.is_file());
         assert!(rbxmx_path.is_file());
+
+        let local_script = compiler
+            .build_file(&root.join("src/player.local.xl"))
+            .unwrap()
+            .rbxmx
+            .expect("local script rbxmx");
+        assert!(local_script.contains(r#"<Item class="LocalScript" referent="RBX0">"#));
+        assert!(local_script.contains(r#"<string name="Name">player</string>"#));
+        assert!(!local_script.contains("RunContext"));
+
+        let legacy_script = compiler
+            .build_file(&root.join("src/compat.legacy.xl"))
+            .unwrap()
+            .rbxmx
+            .expect("legacy script rbxmx");
+        assert!(legacy_script.contains(r#"<Item class="Script" referent="RBX0">"#));
+        assert!(legacy_script.contains(r#"<string name="Name">compat</string>"#));
+        assert!(legacy_script.contains(r#"<token name="RunContext">0</token>"#));
+
+        let module_script = compiler
+            .build_file(&root.join("src/shared.xl"))
+            .unwrap()
+            .rbxmx
+            .expect("module script rbxmx");
+        assert!(module_script.contains(r#"<Item class="ModuleScript" referent="RBX0">"#));
+        assert!(module_script.contains(r#"<string name="Name">shared</string>"#));
     }
 
     #[test]
@@ -1489,14 +1893,140 @@ const BASEPART_MAIN_SET = comptime makeSet(MAIN_PROPERTIES.BasePart)
   "target": "roblox"
 }"#,
         );
-        write_file(&root, "src/shared/init.xl", "return 1");
+        write_file(&root, "src/shared/init.server.xl", "return 1");
 
         let compiler = Compiler::discover(&root).unwrap();
         let artifact = compiler
-            .build_file(&root.join("src/shared/init.xl"))
+            .build_file(&root.join("src/shared/init.server.xl"))
             .unwrap();
         let rbxmx = artifact.rbxmx.expect("rbxmx contents");
-        assert!(rbxmx.contains(r#"<Item class="ModuleScript" referent="RBX0">"#));
+        assert!(rbxmx.contains(r#"<Item class="Script" referent="RBX0">"#));
         assert!(rbxmx.contains(r#"<string name="Name">shared</string>"#));
+        assert!(rbxmx.contains(r#"<token name="RunContext">1</token>"#));
+    }
+
+    #[test]
+    fn supports_custom_roblox_suffix_config() {
+        let root = temp_project("roblox_rbxmx_suffixes");
+        write_file(
+            &root,
+            "xluau.config.json",
+            r#"{
+  "include": ["src/**/*.xl"],
+  "target": "roblox",
+  "robloxOutput": {
+    "suffixes": {
+      "server": ".srv",
+      "legacy": ".old",
+      "client": ".cli",
+      "local": ".loc"
+    }
+  }
+}"#,
+        );
+        write_file(&root, "src/game.srv.xl", "return 1");
+
+        let compiler = Compiler::discover(&root).unwrap();
+        let artifact = compiler.build_file(&root.join("src/game.srv.xl")).unwrap();
+        let rbxmx = artifact.rbxmx.expect("rbxmx contents");
+        assert!(rbxmx.contains(r#"<Item class="Script" referent="RBX0">"#));
+        assert!(rbxmx.contains(r#"<string name="Name">game</string>"#));
+        assert!(rbxmx.contains(r#"<token name="RunContext">1</token>"#));
+    }
+
+    #[test]
+    fn builds_project_rbxmx_with_init_folders_and_custom_path() {
+        let root = temp_project("roblox_project_rbxmx");
+        write_file(
+            &root,
+            "xluau.config.json",
+            r#"{
+  "include": ["src/**/*.xl"],
+  "target": "roblox",
+  "robloxOutput": {
+    "projectRbxmx": {
+      "enabled": true,
+      "path": "generated/game.rbxmx",
+      "rootName": "GameRoot",
+      "rootClassName": "Folder"
+    }
+  }
+}"#,
+        );
+        write_file(&root, "src/Server/init.server.xl", "return 1");
+        write_file(&root, "src/Server/util.xl", "return 2");
+        write_file(&root, "src/Player/controller.local.xl", "return 3");
+        write_file(&root, "src/Shared/math.xl", "return 4");
+
+        let compiler = Compiler::discover(&root).unwrap();
+        let artifacts = compiler.build_project().unwrap();
+        let project = compiler
+            .build_project_rbxmx(&artifacts)
+            .unwrap()
+            .expect("project rbxmx");
+
+        assert!(project.output.ends_with(Path::new("generated/game.rbxmx")));
+        assert!(
+            project
+                .rbxmx
+                .contains(r#"<Item class="Folder" referent="RBX0">"#)
+        );
+        assert!(
+            project
+                .rbxmx
+                .contains(r#"<string name="Name">GameRoot</string>"#)
+        );
+        assert!(
+            project
+                .rbxmx
+                .contains(r#"<Item class="Script" referent="RBX"#)
+        );
+        assert!(
+            project
+                .rbxmx
+                .contains(r#"<string name="Name">Server</string>"#)
+        );
+        assert!(
+            project
+                .rbxmx
+                .contains(r#"<token name="RunContext">1</token>"#)
+        );
+        assert!(
+            project
+                .rbxmx
+                .contains(r#"<Item class="ModuleScript" referent="RBX"#)
+        );
+        assert!(
+            project
+                .rbxmx
+                .contains(r#"<string name="Name">util</string>"#)
+        );
+        assert!(
+            project
+                .rbxmx
+                .contains(r#"<Item class="LocalScript" referent="RBX"#)
+        );
+        assert!(
+            project
+                .rbxmx
+                .contains(r#"<string name="Name">controller</string>"#)
+        );
+
+        let server_index = project
+            .rbxmx
+            .find(r#"<string name="Name">Server</string>"#)
+            .unwrap();
+        let util_index = project
+            .rbxmx
+            .find(r#"<string name="Name">util</string>"#)
+            .unwrap();
+        assert!(server_index < util_index);
+        let server_window_start = server_index.saturating_sub(120);
+        let server_window = &project.rbxmx[server_window_start..server_index];
+        assert!(server_window.contains(r#"class="Script""#));
+        assert!(!server_window.contains(r#"class="Folder""#));
+
+        compiler.write_project_rbxmx(&project).unwrap();
+        assert!(project.output.is_file());
     }
 }

@@ -65,7 +65,8 @@ pub fn finalize_output(
 }
 
 pub fn remap_trace(trace: &str, cwd: &Path) -> String {
-    trace.lines()
+    trace
+        .lines()
         .map(|line| remap_trace_line(line, cwd))
         .collect::<Vec<_>>()
         .join("\n")
@@ -149,7 +150,8 @@ mod tests {
 
     #[test]
     fn strips_pragmas_and_emits_line_mappings() {
-        let formatted = "--@line 3 \"src/main.xl\"\nlocal a = 1\n--@line 8 \"src/main.xl\"\nprint(a)\n";
+        let formatted =
+            "--@line 3 \"src/main.xl\"\nlocal a = 1\n--@line 8 \"src/main.xl\"\nprint(a)\n";
         let (output, map) = finalize_output(
             formatted,
             false,
@@ -213,7 +215,10 @@ mod tests {
         let map = SourceMap {
             version: 1,
             source_file: "src/main.xl".to_string(),
-            emitted_file: root.join("out/main.luau").to_string_lossy().replace('\\', "/"),
+            emitted_file: root
+                .join("out/main.luau")
+                .to_string_lossy()
+                .replace('\\', "/"),
             mappings: vec![super::SourceMapEntry {
                 emitted_line: 10,
                 source_line: 4,
@@ -222,7 +227,10 @@ mod tests {
         };
         fs::write(&map_path, serde_json::to_string(&map).expect("json")).expect("map");
 
-        let trace = format!("{}:12: attempt to call nil", root.join("out/main.luau").display());
+        let trace = format!(
+            "{}:12: attempt to call nil",
+            root.join("out/main.luau").display()
+        );
         let remapped = remap_trace(&trace, Path::new("/unused"));
         assert!(remapped.contains("src/main.xl:4"));
     }

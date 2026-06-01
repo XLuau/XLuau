@@ -176,9 +176,7 @@ impl Emitter {
             Stmt::Assignment(assignment) => self.emit_assignment(assignment, indent),
             Stmt::CompoundAssignment {
                 target, op, value, ..
-            } => {
-                self.emit_compound_assignment(target, *op, value, indent)
-            }
+            } => self.emit_compound_assignment(target, *op, value, indent),
             Stmt::NullishAssignment { target, value, .. } => {
                 self.emit_nullish_assignment(target, value, indent)
             }
@@ -193,8 +191,7 @@ impl Emitter {
             Stmt::If(if_stmt) => self.emit_if_stmt(if_stmt, indent),
             Stmt::ComptimeIf(_) => {
                 self.errors.push(
-                    "internal error: comptime if reached the emitter before expansion"
-                        .to_string(),
+                    "internal error: comptime if reached the emitter before expansion".to_string(),
                 );
                 Ok(String::new())
             }
@@ -251,7 +248,10 @@ impl Emitter {
         {
             return Ok(format!(
                 "{}\n{}",
-                self.indent(indent, &format!("--@line {} \"{}\"", span.line, source_path)),
+                self.indent(
+                    indent,
+                    &format!("--@line {} \"{}\"", span.line, source_path)
+                ),
                 emitted
             ));
         }
@@ -262,8 +262,7 @@ impl Emitter {
     fn emit_local(&mut self, local: &LocalDecl, indent: usize) -> Result<String> {
         if local.is_comptime {
             self.errors.push(
-                "internal error: comptime const reached the emitter before expansion"
-                    .to_string(),
+                "internal error: comptime const reached the emitter before expansion".to_string(),
             );
             return Ok(String::new());
         }
@@ -330,7 +329,12 @@ impl Emitter {
             .type_annotation
             .as_ref()
             .map(|text| self.rewrite_type_text(text))
-            .or_else(|| state.value.as_ref().and_then(|value| self.infer_value_type(value)))
+            .or_else(|| {
+                state
+                    .value
+                    .as_ref()
+                    .and_then(|value| self.infer_value_type(value))
+            })
             .unwrap_or_else(|| "any".to_string());
         let watchers_name = self.next_temp(&format!("watchers_{name}_"));
 
@@ -413,15 +417,9 @@ impl Emitter {
         parts.push(self.indent(indent + 1, "connect = function(self, fn)"));
         parts.push(self.indent(indent + 2, "table.insert(self._handlers, fn)"));
         parts.push(self.indent(indent + 2, "return { disconnect = function()"));
-        parts.push(self.indent(
-            indent + 3,
-            "local _index = table.find(self._handlers, fn)",
-        ));
+        parts.push(self.indent(indent + 3, "local _index = table.find(self._handlers, fn)"));
         parts.push(self.indent(indent + 3, "if _index ~= nil then"));
-        parts.push(self.indent(
-            indent + 4,
-            "table.remove(self._handlers, _index)",
-        ));
+        parts.push(self.indent(indent + 4, "table.remove(self._handlers, _index)"));
         parts.push(self.indent(indent + 3, "end"));
         parts.push(self.indent(indent + 2, "end }"));
         parts.push(self.indent(indent + 1, "end,"));
@@ -484,7 +482,11 @@ impl Emitter {
         };
         let mut parts = vec![self.indent(
             indent,
-            &format!("table.insert({}, function({})", state.watchers_name, params.join(", ")),
+            &format!(
+                "table.insert({}, function({})",
+                state.watchers_name,
+                params.join(", ")
+            ),
         )];
 
         self.const_scopes.push(HashSet::new());
@@ -563,7 +565,9 @@ impl Emitter {
         params
             .iter()
             .map(|param| match &param.annotation {
-                Some(annotation) => format!("{}: {}", param.name, self.rewrite_type_text(annotation)),
+                Some(annotation) => {
+                    format!("{}: {}", param.name, self.rewrite_type_text(annotation))
+                }
                 None => param.name.clone(),
             })
             .collect::<Vec<_>>()
@@ -579,11 +583,8 @@ impl Emitter {
                 params
                     .iter()
                     .map(|param| match &param.annotation {
-                        Some(annotation) => format!(
-                            "{}: {}",
-                            param.name,
-                            self.rewrite_type_text(annotation)
-                        ),
+                        Some(annotation) =>
+                            format!("{}: {}", param.name, self.rewrite_type_text(annotation)),
                         None => param.name.clone(),
                     })
                     .collect::<Vec<_>>()
@@ -774,7 +775,11 @@ impl Emitter {
         Ok(parts.join("\n"))
     }
 
-    fn emit_task_function_stmt(&mut self, function: &FunctionDecl, indent: usize) -> Result<String> {
+    fn emit_task_function_stmt(
+        &mut self,
+        function: &FunctionDecl,
+        indent: usize,
+    ) -> Result<String> {
         let generic_specs = self.parse_generic_params(function.generics.as_deref());
         let emitted_generics = self.render_generic_params(&generic_specs);
         let (params, prologue) = self.lower_params(&function.params, &generic_specs)?;
@@ -822,7 +827,10 @@ impl Emitter {
         let instance_type = self.render_object_instance_type(object);
         let mut parts = vec![self.indent(indent, &instance_type)];
         parts.push(self.indent(indent, &format!("local {} = {{}}", object.name)));
-        parts.push(self.indent(indent, &format!("{}.__index = {}", object.name, object.name)));
+        parts.push(self.indent(
+            indent,
+            &format!("{}.__index = {}", object.name, object.name),
+        ));
         if let Some(parent) = &object.extends {
             parts.push(self.indent(
                 indent,
@@ -931,7 +939,10 @@ impl Emitter {
         let mut body_slice = method.body.as_slice();
         let mut init_lines = Vec::new();
         if let Some(parent) = &object.extends {
-            if let Some(args) = body_slice.first().and_then(|stmt| self.extract_super_constructor_args(stmt)) {
+            if let Some(args) = body_slice
+                .first()
+                .and_then(|stmt| self.extract_super_constructor_args(stmt))
+            {
                 let (setup, values) = self.emit_args(&args, None)?;
                 init_lines.extend(setup);
                 init_lines.push(format!(
@@ -1055,7 +1066,12 @@ impl Emitter {
         if generics.is_empty() {
             format!("({}) -> {}", params.join(", "), return_type)
         } else {
-            format!("<{}>({}) -> {}", generics.join(", "), params.join(", "), return_type)
+            format!(
+                "<{}>({}) -> {}",
+                generics.join(", "),
+                params.join(", "),
+                return_type
+            )
         }
     }
 
@@ -1070,10 +1086,11 @@ impl Emitter {
             return None;
         }
         match (&segments[0], &segments[1]) {
-            (
-                ChainSegment::Field { name, safe: false },
-                ChainSegment::Call { args, .. },
-            ) if name == "new" => Some(args.clone()),
+            (ChainSegment::Field { name, safe: false }, ChainSegment::Call { args, .. })
+                if name == "new" =>
+            {
+                Some(args.clone())
+            }
             _ => None,
         }
     }
@@ -1289,9 +1306,7 @@ impl Emitter {
         ));
         inner.push(self.indent(
             1,
-            &format!(
-                "{ok_name}, {result_name} = coroutine.resume({co_name}, {result_name})"
-            ),
+            &format!("{ok_name}, {result_name} = coroutine.resume({co_name}, {result_name})"),
         ));
         inner.push("end".to_string());
 
@@ -1895,7 +1910,9 @@ impl Emitter {
             Expr::Nil => Ok(self.simple_expr("nil", true)),
             Expr::Bool(value) => Ok(self.simple_expr(if *value { "true" } else { "false" }, true)),
             Expr::Number(value) | Expr::String(value) => Ok(self.simple_expr(value, true)),
-            Expr::Pattern(value) => Ok(self.simple_expr(&self.compile_pattern_literal(value)?, true)),
+            Expr::Pattern(value) => {
+                Ok(self.simple_expr(&self.compile_pattern_literal(value)?, true))
+            }
             Expr::Comptime(_) => {
                 self.errors.push(
                     "internal error: comptime expression reached the emitter before expansion"
@@ -1915,8 +1932,10 @@ impl Emitter {
                 {
                     Ok(self.simple_expr(parent, true))
                 } else {
-                    self.errors
-                        .push("`super` is only valid inside an object that extends another object".to_string());
+                    self.errors.push(
+                        "`super` is only valid inside an object that extends another object"
+                            .to_string(),
+                    );
                     Ok(self.simple_expr("super", true))
                 }
             }
@@ -1946,7 +1965,11 @@ impl Emitter {
                 let lowered = self.emit_expr(expr, placeholder)?;
                 Ok(LoweredExpr {
                     setup: lowered.setup,
-                    expr: format!("({} :: {})", lowered.expr, self.rewrite_type_text(annotation)),
+                    expr: format!(
+                        "({} :: {})",
+                        lowered.expr,
+                        self.rewrite_type_text(annotation)
+                    ),
                     reuse_safe: false,
                 })
             }
@@ -2368,8 +2391,12 @@ impl Emitter {
                     expr = format!("{expr}[{}]", index.expr);
                 }
                 ChainSegment::Call { type_args, args } => {
-                    let invocation =
-                        self.emit_explicit_type_call(&expr, type_args.as_deref(), args, placeholder)?;
+                    let invocation = self.emit_explicit_type_call(
+                        &expr,
+                        type_args.as_deref(),
+                        args,
+                        placeholder,
+                    )?;
                     lowered.setup.extend(invocation.setup);
                     expr = invocation.expr;
                 }
@@ -2408,8 +2435,9 @@ impl Emitter {
             .last()
             .and_then(|context| context.parent_name.clone())
         else {
-            self.errors
-                .push("`super` is only valid inside an object that extends another object".to_string());
+            self.errors.push(
+                "`super` is only valid inside an object that extends another object".to_string(),
+            );
             return Ok(self.simple_expr("super", true));
         };
 
@@ -2654,11 +2682,7 @@ impl Emitter {
         Ok((setup, values))
     }
 
-    fn emit_freeze_expr(
-        &mut self,
-        expr: &Expr,
-        placeholder: Option<&str>,
-    ) -> Result<LoweredExpr> {
+    fn emit_freeze_expr(&mut self, expr: &Expr, placeholder: Option<&str>) -> Result<LoweredExpr> {
         let lowered = self.emit_expr(expr, placeholder)?;
         Ok(LoweredExpr {
             setup: lowered.setup,
@@ -2667,11 +2691,7 @@ impl Emitter {
         })
     }
 
-    fn emit_yield_expr(
-        &mut self,
-        expr: &Expr,
-        placeholder: Option<&str>,
-    ) -> Result<LoweredExpr> {
+    fn emit_yield_expr(&mut self, expr: &Expr, placeholder: Option<&str>) -> Result<LoweredExpr> {
         if self.task_depth == 0 {
             self.errors
                 .push("`yield` is only valid inside a task function".to_string());
@@ -2709,16 +2729,17 @@ impl Emitter {
         };
 
         let instantiated = self.instantiate_function_signature(&signature, type_args);
-        let should_cast_args = signature
-            .params
-            .iter()
-            .zip(instantiated.params.iter())
-            .any(|(raw, instantiated)| {
-                raw.as_ref()
-                    .map(|text| self.signature_uses_generics(text, &signature.generics))
-                    .unwrap_or(false)
-                    && instantiated.is_some()
-            });
+        let should_cast_args =
+            signature
+                .params
+                .iter()
+                .zip(instantiated.params.iter())
+                .any(|(raw, instantiated)| {
+                    raw.as_ref()
+                        .map(|text| self.signature_uses_generics(text, &signature.generics))
+                        .unwrap_or(false)
+                        && instantiated.is_some()
+                });
 
         if should_cast_args {
             for (index, annotation) in instantiated.params.iter().enumerate() {
@@ -2793,10 +2814,9 @@ impl Emitter {
     }
 
     fn signature_uses_generics(&self, text: &str, generics: &[GenericParamSpec]) -> bool {
-        generics.iter().any(|generic| {
-            self.replace_type_identifier(text, &generic.name, "__x")
-                != text
-        })
+        generics
+            .iter()
+            .any(|generic| self.replace_type_identifier(text, &generic.name, "__x") != text)
     }
 
     fn lower_params(
@@ -2911,14 +2931,16 @@ impl Emitter {
             if !method.is_static && method.name != "new" {
                 params.push(Some(object.name.clone()));
             }
-            params.extend(method.params.iter().map(|param| match param {
-                Param::Binding(binding) => binding
-                    .type_annotation
-                    .clone()
-                    .map(|text| self.rewrite_type_text_canonical(&text)),
-                Param::VarArg(annotation) => annotation
-                    .clone()
-                    .map(|text| self.rewrite_type_text_canonical(&text)),
+            params.extend(method.params.iter().map(|param| {
+                match param {
+                    Param::Binding(binding) => binding
+                        .type_annotation
+                        .clone()
+                        .map(|text| self.rewrite_type_text_canonical(&text)),
+                    Param::VarArg(annotation) => annotation
+                        .clone()
+                        .map(|text| self.rewrite_type_text_canonical(&text)),
+                }
             }));
             let return_type = method
                 .return_type
@@ -3148,53 +3170,55 @@ impl Emitter {
         })
     }
 
-    fn expand_builtin_type_utility_mode(
-        &self,
-        text: &str,
-        mode: TypeRenderMode,
-    ) -> Option<String> {
+    fn expand_builtin_type_utility_mode(&self, text: &str, mode: TypeRenderMode) -> Option<String> {
         let (name, args) = self.parse_type_application(text)?;
         match name.as_str() {
             "Partial" => {
                 let fields = self.resolve_table_type_fields(args.first()?.trim())?;
-                Some(self.render_table_type_specs_mode(
-                    &fields
-                        .into_iter()
-                        .map(|field| TableTypeFieldSpec {
-                            key: field.key,
-                            value: self.make_optional_type(&field.value),
-                            readonly: field.readonly,
-                        })
-                        .collect::<Vec<_>>(),
-                    mode,
-                ))
+                Some(
+                    self.render_table_type_specs_mode(
+                        &fields
+                            .into_iter()
+                            .map(|field| TableTypeFieldSpec {
+                                key: field.key,
+                                value: self.make_optional_type(&field.value),
+                                readonly: field.readonly,
+                            })
+                            .collect::<Vec<_>>(),
+                        mode,
+                    ),
+                )
             }
             "Required" => {
                 let fields = self.resolve_table_type_fields(args.first()?.trim())?;
-                Some(self.render_table_type_specs_mode(
-                    &fields
-                        .into_iter()
-                        .map(|field| TableTypeFieldSpec {
-                            key: field.key,
-                            value: self.remove_optional_type(&field.value),
-                            readonly: field.readonly,
-                        })
-                        .collect::<Vec<_>>(),
-                    mode,
-                ))
+                Some(
+                    self.render_table_type_specs_mode(
+                        &fields
+                            .into_iter()
+                            .map(|field| TableTypeFieldSpec {
+                                key: field.key,
+                                value: self.remove_optional_type(&field.value),
+                                readonly: field.readonly,
+                            })
+                            .collect::<Vec<_>>(),
+                        mode,
+                    ),
+                )
             }
             "Readonly" => {
                 let fields = self.resolve_table_type_fields(args.first()?.trim())?;
-                Some(self.render_table_type_specs_mode(
-                    &fields
-                        .into_iter()
-                        .map(|field| TableTypeFieldSpec {
-                            readonly: true,
-                            ..field
-                        })
-                        .collect::<Vec<_>>(),
-                    mode,
-                ))
+                Some(
+                    self.render_table_type_specs_mode(
+                        &fields
+                            .into_iter()
+                            .map(|field| TableTypeFieldSpec {
+                                readonly: true,
+                                ..field
+                            })
+                            .collect::<Vec<_>>(),
+                        mode,
+                    ),
+                )
             }
             "Pick" => {
                 let fields = self.resolve_table_type_fields(args.first()?.trim())?;
@@ -3218,16 +3242,19 @@ impl Emitter {
                 let key_arg = args.first()?.trim();
                 let value_arg = self.rewrite_type_text_mode(args.get(1)?.trim(), mode);
                 if let Some(keys) = self.parse_string_literal_union(key_arg) {
-                    Some(self.render_table_type_specs_mode(
-                        &keys.into_iter()
-                            .map(|key| TableTypeFieldSpec {
-                                key,
-                                value: value_arg.clone(),
-                                readonly: false,
-                            })
-                            .collect::<Vec<_>>(),
-                        mode,
-                    ))
+                    Some(
+                        self.render_table_type_specs_mode(
+                            &keys
+                                .into_iter()
+                                .map(|key| TableTypeFieldSpec {
+                                    key,
+                                    value: value_arg.clone(),
+                                    readonly: false,
+                                })
+                                .collect::<Vec<_>>(),
+                            mode,
+                        ),
+                    )
                 } else {
                     Some(format!(
                         "{{ [{}]: {} }}",
@@ -3401,9 +3428,7 @@ impl Emitter {
     ) -> String {
         let prefix = match mode {
             TypeRenderMode::Canonical if field.readonly => "readonly ",
-            TypeRenderMode::Visible if field.readonly && self.uses_new_solver_readonly() => {
-                "read "
-            }
+            TypeRenderMode::Visible if field.readonly && self.uses_new_solver_readonly() => "read ",
             _ => "",
         };
         format!("{prefix}{}: {}", field.key, field.value)
@@ -3438,7 +3463,8 @@ impl Emitter {
                 .strip_prefix('"')
                 .and_then(|value| value.strip_suffix('"'))
                 .or_else(|| {
-                    piece.strip_prefix('\'')
+                    piece
+                        .strip_prefix('\'')
                         .and_then(|value| value.strip_suffix('\''))
                 })?;
             values.push(unquoted.to_string());
@@ -3518,18 +3544,9 @@ impl Emitter {
         indent: usize,
     ) -> Vec<String> {
         let mut lines = Vec::new();
-        lines.push(self.indent(
-            indent,
-            &format!("if {current_name} ~= {old_name} then"),
-        ));
-        lines.push(self.indent(
-            indent + 1,
-            &format!("for _, _w in {watchers_name} do"),
-        ));
-        lines.push(self.indent(
-            indent + 2,
-            &format!("_w({old_name}, {current_name})"),
-        ));
+        lines.push(self.indent(indent, &format!("if {current_name} ~= {old_name} then")));
+        lines.push(self.indent(indent + 1, &format!("for _, _w in {watchers_name} do")));
+        lines.push(self.indent(indent + 2, &format!("_w({old_name}, {current_name})")));
         lines.push(self.indent(indent + 1, "end"));
         lines.push(self.indent(indent, "end"));
         lines
@@ -3972,8 +3989,7 @@ impl Emitter {
                     || segments.iter().any(|segment| match segment {
                         ChainSegment::Field { .. } => false,
                         ChainSegment::Index { expr, .. } => self.contains_placeholder(expr),
-                        ChainSegment::Call { args, .. }
-                        | ChainSegment::MethodCall { args, .. } => {
+                        ChainSegment::Call { args, .. } | ChainSegment::MethodCall { args, .. } => {
                             args.iter().any(|arg| self.contains_placeholder(arg))
                         }
                     })
@@ -4128,16 +4144,18 @@ impl Emitter {
             Expr::Freeze(inner) => {
                 let inner_type = self.infer_value_type(inner)?;
                 let fields = self.resolve_table_type_fields(&inner_type)?;
-                Some(self.render_table_type_specs_mode(
-                    &fields
-                        .into_iter()
-                        .map(|field| TableTypeFieldSpec {
-                            readonly: true,
-                            ..field
-                        })
-                        .collect::<Vec<_>>(),
-                    TypeRenderMode::Canonical,
-                ))
+                Some(
+                    self.render_table_type_specs_mode(
+                        &fields
+                            .into_iter()
+                            .map(|field| TableTypeFieldSpec {
+                                readonly: true,
+                                ..field
+                            })
+                            .collect::<Vec<_>>(),
+                        TypeRenderMode::Canonical,
+                    ),
+                )
             }
             Expr::Table(fields) => {
                 let mut typed_fields = Vec::new();
@@ -4224,7 +4242,10 @@ impl Emitter {
     }
 
     fn compile_pattern_literal(&self, raw: &str) -> Result<String> {
-        let Some(inner) = raw.strip_prefix('`').and_then(|text| text.strip_suffix('`')) else {
+        let Some(inner) = raw
+            .strip_prefix('`')
+            .and_then(|text| text.strip_suffix('`'))
+        else {
             return Err(CompilerError::Semantic {
                 messages: vec!["pattern literals must use backtick quotes".to_string()],
             });

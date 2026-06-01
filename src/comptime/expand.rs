@@ -75,7 +75,11 @@ impl Expander {
                 Ok(Vec::new())
             }
             Stmt::Function(function) => {
-                let body = self.expand_function_body(function.local_name.then_some(function.name.root.as_str()), &function.params, &function.body)?;
+                let body = self.expand_function_body(
+                    function.local_name.then_some(function.name.root.as_str()),
+                    &function.params,
+                    &function.body,
+                )?;
                 let function = FunctionDecl {
                     span: function.span,
                     local_name: function.local_name,
@@ -98,7 +102,10 @@ impl Expander {
                     .branches
                     .iter()
                     .map(|(condition, block)| {
-                        Ok((self.expand_expr(condition)?, self.expand_scoped_block(block)?))
+                        Ok((
+                            self.expand_expr(condition)?,
+                            self.expand_scoped_block(block)?,
+                        ))
                     })
                     .collect::<Result<Vec<_>>>()?,
                 else_block: if_stmt
@@ -217,7 +224,11 @@ impl Expander {
                 op: *op,
                 value: self.expand_expr(value)?,
             }]),
-            Stmt::NullishAssignment { span, target, value } => Ok(vec![Stmt::NullishAssignment {
+            Stmt::NullishAssignment {
+                span,
+                target,
+                value,
+            } => Ok(vec![Stmt::NullishAssignment {
                 span: *span,
                 target: target.clone(),
                 value: self.expand_expr(value)?,
@@ -372,7 +383,10 @@ impl Expander {
                 then_expr: Box::new(self.expand_expr(then_expr)?),
                 else_expr: Box::new(self.expand_expr(else_expr)?),
             }),
-            Expr::IfElse { branches, else_expr } => Ok(Expr::IfElse {
+            Expr::IfElse {
+                branches,
+                else_expr,
+            } => Ok(Expr::IfElse {
                 branches: branches
                     .iter()
                     .map(|(condition, value)| {
@@ -538,7 +552,10 @@ impl Expander {
             .clauses
             .iter()
             .map(|clause| match clause {
-                ComprehensionClause::GenericFor { bindings, iterables } => {
+                ComprehensionClause::GenericFor {
+                    bindings,
+                    iterables,
+                } => {
                     let iterables = iterables
                         .iter()
                         .map(|iterable| self.expand_expr(iterable))
@@ -557,7 +574,10 @@ impl Expander {
                 } => {
                     let start = self.expand_expr(start)?;
                     let end = self.expand_expr(end)?;
-                    let step = step.as_ref().map(|step| self.expand_expr(step)).transpose()?;
+                    let step = step
+                        .as_ref()
+                        .map(|step| self.expand_expr(step))
+                        .transpose()?;
                     self.env.define_runtime_name(name);
                     Ok(ComprehensionClause::NumericFor {
                         name: name.clone(),
@@ -581,7 +601,10 @@ impl Expander {
             },
         };
         self.env.pop_scope();
-        Ok(Expr::Comprehension(Box::new(TableComprehension { kind, clauses })))
+        Ok(Expr::Comprehension(Box::new(TableComprehension {
+            kind,
+            clauses,
+        })))
     }
 
     fn expand_spawn_handler(&mut self, handler: &SpawnHandler) -> Result<SpawnHandler> {
@@ -705,7 +728,10 @@ impl Expander {
     }
 
     fn define_comptime_function(&mut self, function: &FunctionDecl) -> Result<()> {
-        if !function.local_name || !function.name.fields.is_empty() || function.name.method.is_some() {
+        if !function.local_name
+            || !function.name.fields.is_empty()
+            || function.name.method.is_some()
+        {
             return Err(CompilerError::Other(
                 "comptime function declarations must use a simple local name.".to_string(),
             ));

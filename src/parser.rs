@@ -172,9 +172,7 @@ impl<'src> Parser<'src> {
         if self.match_keyword(Keyword::Switch) {
             return self.parse_comptime_switch_stmt(span);
         }
-        Err(self.error_here(
-            "expected `const`, `function`, `if`, or `switch` after `comptime`",
-        ))
+        Err(self.error_here("expected `const`, `function`, `if`, or `switch` after `comptime`"))
     }
 
     fn parse_type_alias_stmt(&mut self) -> Result<Stmt> {
@@ -1645,9 +1643,9 @@ impl<'src> Parser<'src> {
                     );
                 } else {
                     if type_args.is_some() {
-                        return Err(self.error_here(
-                            "explicit type arguments require a method call",
-                        ));
+                        return Err(
+                            self.error_here("explicit type arguments require a method call")
+                        );
                     }
                     expr = self.push_segment(expr, ChainSegment::Field { name, safe: true });
                 }

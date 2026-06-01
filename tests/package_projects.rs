@@ -11,7 +11,10 @@ use xluau::{
 
 fn assert_package_fixture(project: &str, entry_file: &str) {
     let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let fixture_dir = repo_root.join("tests").join("package_projects").join(project);
+    let fixture_dir = repo_root
+        .join("tests")
+        .join("package_projects")
+        .join(project);
     let temp_root = temp_dir(project);
     copy_dir(&fixture_dir, &temp_root);
 
@@ -50,8 +53,8 @@ fn assert_package_fixture(project: &str, entry_file: &str) {
     );
 
     let bundle = fs::read_to_string(temp_root.join("packages.luau")).expect("packages bundle");
-    let expected_bundle = fs::read_to_string(fixture_dir.join("packages.luau"))
-        .expect("expected packages bundle");
+    let expected_bundle =
+        fs::read_to_string(fixture_dir.join("packages.luau")).expect("expected packages bundle");
     assert!(
         bundle.contains("json = _xluau_json"),
         "expected generated package bundle for fixture {} to expose json package",

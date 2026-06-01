@@ -9,7 +9,9 @@ use super::{
     ComptimeOptions,
     builtins::{as_array_index, call_builtin, call_method, is_builtin, table_get, table_insert},
     env::CtEnv,
-    value::{CtArray, CtFunctionHandle, CtTable, CtValue, decode_string_literal, parse_number_literal},
+    value::{
+        CtArray, CtFunctionHandle, CtTable, CtValue, decode_string_literal, parse_number_literal,
+    },
 };
 
 pub struct Evaluator {
@@ -66,9 +68,7 @@ impl Evaluator {
         let mut nested = Evaluator::new(function.env.clone(), function.options.clone());
         nested.env.push_scope();
         if let Some(name) = &function.name {
-            nested
-                .env
-                .define_function(name, Arc::clone(function));
+            nested.env.define_function(name, Arc::clone(function));
         }
 
         let expected = function
@@ -76,7 +76,11 @@ impl Evaluator {
             .iter()
             .filter(|param| matches!(param, Param::Binding(_)))
             .count();
-        if function.params.iter().any(|param| matches!(param, Param::VarArg(_))) {
+        if function
+            .params
+            .iter()
+            .any(|param| matches!(param, Param::VarArg(_)))
+        {
             return Err(CompilerError::Other(
                 "Varargs are not supported in comptime functions yet.".to_string(),
             ));
@@ -281,7 +285,7 @@ impl Evaluator {
                 return Err(CompilerError::Other(format!(
                     "Compile-time for loops expect an array or table, got {}.",
                     other.type_name()
-                )))
+                )));
             }
         };
 
@@ -392,7 +396,9 @@ impl Evaluator {
             }));
         }
 
-        let array_like = fields.iter().all(|field| matches!(field, TableField::Value(_)));
+        let array_like = fields
+            .iter()
+            .all(|field| matches!(field, TableField::Value(_)));
         if array_like {
             return Ok(CtValue::Array(CtArray {
                 items: fields
@@ -418,7 +424,9 @@ impl Evaluator {
         let mut entries = Vec::new();
         for field in fields {
             match field {
-                TableField::Named(name, value) => entries.push((name.clone(), self.eval_expr(value)?)),
+                TableField::Named(name, value) => {
+                    entries.push((name.clone(), self.eval_expr(value)?))
+                }
                 TableField::Indexed(key, value) => {
                     let key = self.eval_expr(key)?;
                     let CtValue::String(key) = key else {
@@ -646,7 +654,9 @@ impl Evaluator {
     fn assign_target(&mut self, target: &AssignTarget, value: CtValue) -> Result<()> {
         match target {
             AssignTarget::Name(name) => self.env.assign_value(name, value),
-            AssignTarget::Field { object, field } => self.assign_path(object, vec![CtPath::Field(field.clone())], value),
+            AssignTarget::Field { object, field } => {
+                self.assign_path(object, vec![CtPath::Field(field.clone())], value)
+            }
             AssignTarget::Index { object, index } => {
                 let index_value = self.eval_expr(index)?;
                 self.assign_path(object, vec![CtPath::Index(index_value)], value)
@@ -677,7 +687,7 @@ impl Evaluator {
                             return Err(CompilerError::Other(
                                 "Compile-time assignments cannot target call expressions."
                                     .to_string(),
-                            ))
+                            ));
                         }
                     }
                 }
@@ -713,10 +723,18 @@ fn set_path_value(target: &mut CtValue, path: &[CtPath], value: CtValue) -> Resu
                 table_insert(table, key.clone(), value);
                 return Ok(());
             }
-            let entry = if let Some((_, entry)) = table.entries.iter_mut().find(|(entry, _)| *entry == *key) {
+            let entry = if let Some((_, entry)) =
+                table.entries.iter_mut().find(|(entry, _)| *entry == *key)
+            {
                 entry
             } else {
-                table.entries.push((key.clone(), CtValue::Table(CtTable { entries: Vec::new(), frozen: false })));
+                table.entries.push((
+                    key.clone(),
+                    CtValue::Table(CtTable {
+                        entries: Vec::new(),
+                        frozen: false,
+                    }),
+                ));
                 &mut table.entries.last_mut().expect("just pushed").1
             };
             set_path_value(entry, &path[1..], value)
@@ -747,10 +765,18 @@ fn set_path_value(target: &mut CtValue, path: &[CtPath], value: CtValue) -> Resu
                 table_insert(table, key.clone(), value);
                 return Ok(());
             }
-            let entry = if let Some((_, entry)) = table.entries.iter_mut().find(|(entry, _)| *entry == *key) {
+            let entry = if let Some((_, entry)) =
+                table.entries.iter_mut().find(|(entry, _)| *entry == *key)
+            {
                 entry
             } else {
-                table.entries.push((key.clone(), CtValue::Table(CtTable { entries: Vec::new(), frozen: false })));
+                table.entries.push((
+                    key.clone(),
+                    CtValue::Table(CtTable {
+                        entries: Vec::new(),
+                        frozen: false,
+                    }),
+                ));
                 &mut table.entries.last_mut().expect("just pushed").1
             };
             set_path_value(entry, &path[1..], value)
@@ -840,7 +866,7 @@ fn compare_values(left: CtValue, right: CtValue, op: &str) -> Result<CtValue> {
                 "Cannot compare {} and {} with `{op}` at compile time.",
                 left.type_name(),
                 right.type_name()
-            )))
+            )));
         }
     };
     Ok(CtValue::Bool(result))

@@ -79,13 +79,13 @@ impl CtValue {
             CtValue::Nil => Ok(Expr::Nil),
             CtValue::Bool(value) => Ok(Expr::Bool(*value)),
             CtValue::Number(value) => Ok(Expr::Number(format_number(*value))),
-            CtValue::String(value) => Ok(Expr::String(
-                serde_json::to_string(value).map_err(|error| {
+            CtValue::String(value) => Ok(Expr::String(serde_json::to_string(value).map_err(
+                |error| {
                     CompilerError::Other(format!(
                         "failed to serialize compile-time string literal: {error}"
                     ))
-                })?,
-            )),
+                },
+            )?)),
             CtValue::Array(array) => {
                 let expr = Expr::Table(
                     array
@@ -184,11 +184,7 @@ impl fmt::Display for CtValue {
 
 pub fn decode_string_literal(raw: &str) -> Result<String> {
     if raw.starts_with('[') {
-        let equals = raw
-            .chars()
-            .skip(1)
-            .take_while(|ch| *ch == '=')
-            .count();
+        let equals = raw.chars().skip(1).take_while(|ch| *ch == '=').count();
         let start = 2 + equals;
         let end = raw.len().saturating_sub(2 + equals);
         return Ok(raw[start..end].to_string());

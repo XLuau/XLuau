@@ -192,7 +192,11 @@ impl PackageManager {
 
         let mut packages = Vec::new();
         for installed_package in &installed {
-            packages.push(self.build_package_bundle(installed_package, &installed, options.minify)?);
+            packages.push(self.build_package_bundle(
+                installed_package,
+                &installed,
+                options.minify,
+            )?);
         }
 
         let contents = render_packages_bundle(&packages);
@@ -211,7 +215,13 @@ impl PackageManager {
         let mut seen = HashSet::new();
         for source in self.config.packages.values() {
             let parsed = parse_package_source(source);
-            self.install_source_recursive(&registry, &mut lock, &parsed, &mut installed, &mut seen)?;
+            self.install_source_recursive(
+                &registry,
+                &mut lock,
+                &parsed,
+                &mut installed,
+                &mut seen,
+            )?;
         }
         self.write_lock(&lock)?;
         self.bundle(BundleOptions {
@@ -234,7 +244,13 @@ impl PackageManager {
             let alias = default_alias_for_source(&source, &registry)?;
             let config_value = default_config_value_for_source(&source, &registry)?;
             self.config.packages.insert(alias, config_value);
-            self.install_source_recursive(&registry, &mut lock, &source, &mut installed, &mut seen)?;
+            self.install_source_recursive(
+                &registry,
+                &mut lock,
+                &source,
+                &mut installed,
+                &mut seen,
+            )?;
         }
 
         self.write_config()?;
@@ -251,7 +267,8 @@ impl PackageManager {
             self.config.packages.remove(alias);
         }
         let keep = self.required_package_ids_from_config()?;
-        lock.packages.retain(|package_id, _| keep.contains(package_id));
+        lock.packages
+            .retain(|package_id, _| keep.contains(package_id));
         self.write_config()?;
         self.write_lock(&lock)?;
         self.bundle(BundleOptions {
@@ -275,10 +292,7 @@ impl PackageManager {
         Ok(rows)
     }
 
-    pub fn update_requests(
-        &mut self,
-        requests: &[String],
-    ) -> Result<Vec<InstalledPackageSummary>> {
+    pub fn update_requests(&mut self, requests: &[String]) -> Result<Vec<InstalledPackageSummary>> {
         if requests.is_empty() {
             return self.install_all();
         }
@@ -291,11 +305,18 @@ impl PackageManager {
             let source = parse_package_source(request);
             let alias = default_alias_for_source(&source, &registry)?;
             if !self.config.packages.contains_key(&alias) {
-                self.config
-                    .packages
-                    .insert(alias.clone(), default_config_value_for_source(&source, &registry)?);
+                self.config.packages.insert(
+                    alias.clone(),
+                    default_config_value_for_source(&source, &registry)?,
+                );
             }
-            self.install_source_recursive(&registry, &mut lock, &source, &mut installed, &mut seen)?;
+            self.install_source_recursive(
+                &registry,
+                &mut lock,
+                &source,
+                &mut installed,
+                &mut seen,
+            )?;
         }
         self.write_config()?;
         self.write_lock(&lock)?;
@@ -317,9 +338,10 @@ impl PackageManager {
             .lines()
             .filter_map(|line| {
                 let trimmed = line.trim_start();
-                trimmed
-                    .strip_prefix("export type ")
-                    .and_then(|rest| rest.split_once('=').map(|(head, _)| head.trim().to_string()))
+                trimmed.strip_prefix("export type ").and_then(|rest| {
+                    rest.split_once('=')
+                        .map(|(head, _)| head.trim().to_string())
+                })
             })
             .collect::<Vec<_>>();
         let public_fields = infer_public_field_names(&source);
@@ -363,7 +385,11 @@ impl PackageManager {
         entry.repo = validation.manifest.repo.clone();
         entry.description = validation.manifest.description.clone();
         entry.latest = validation.manifest.version.clone();
-        if !entry.versions.iter().any(|version| version == &validation.manifest.version) {
+        if !entry
+            .versions
+            .iter()
+            .any(|version| version == &validation.manifest.version)
+        {
             entry.versions.push(validation.manifest.version.clone());
             entry.versions.sort();
         }
@@ -381,7 +407,10 @@ impl PackageManager {
     }
 
     fn required_package_ids(&self) -> Result<Vec<String>> {
-        let mut ids = self.required_package_ids_from_config()?.into_iter().collect::<Vec<_>>();
+        let mut ids = self
+            .required_package_ids_from_config()?
+            .into_iter()
+            .collect::<Vec<_>>();
         ids.sort();
         Ok(ids)
     }
@@ -415,10 +444,7 @@ impl PackageManager {
         next.xluau = XLUAU_VERSION.to_string();
         let contents = serde_json::to_string_pretty(&next)
             .map_err(|source| CompilerError::Other(source.to_string()))?;
-        fs::write(&path, contents).map_err(|source| CompilerError::Io {
-            path,
-            source,
-        })
+        fs::write(&path, contents).map_err(|source| CompilerError::Io { path, source })
     }
 
     fn load_registry(&self) -> Result<RegistryIndex> {
@@ -437,10 +463,7 @@ impl PackageManager {
         let path = self.root.join("xluau.config.json");
         let contents = serde_json::to_string_pretty(&self.config)
             .map_err(|source| CompilerError::Other(source.to_string()))?;
-        fs::write(&path, contents).map_err(|source| CompilerError::Io {
-            path,
-            source,
-        })
+        fs::write(&path, contents).map_err(|source| CompilerError::Io { path, source })
     }
 
     fn install_source_recursive(
@@ -485,7 +508,10 @@ impl PackageManager {
     }
 
     fn fetch_and_store_package(&self, resolved: &ResolvedSource) -> Result<InstalledPackage> {
-        let destination = self.root.join(&self.config.package_dir).join(&resolved.package_id);
+        let destination = self
+            .root
+            .join(&self.config.package_dir)
+            .join(&resolved.package_id);
         if destination.exists() {
             fs::remove_dir_all(&destination).map_err(|source| CompilerError::Io {
                 path: destination.clone(),
@@ -507,7 +533,11 @@ impl PackageManager {
             };
             copy_directory(&source_path, &destination)?;
         } else {
-            clone_package_repo(&resolved.repo, resolved.checkout_ref.as_deref(), &destination)?;
+            clone_package_repo(
+                &resolved.repo,
+                resolved.checkout_ref.as_deref(),
+                &destination,
+            )?;
         }
 
         let manifest_path = destination.join("xlpkg.json");
@@ -531,7 +561,11 @@ impl PackageManager {
         })
     }
 
-    fn load_installed_package(&self, lock: &XluauLock, package_id: &str) -> Result<InstalledPackage> {
+    fn load_installed_package(
+        &self,
+        lock: &XluauLock,
+        package_id: &str,
+    ) -> Result<InstalledPackage> {
         let locked = lock.packages.get(package_id).ok_or_else(|| {
             CompilerError::Other(format!(
                 "package `{package_id}` is required by config but missing from xluau.lock"
@@ -581,7 +615,11 @@ impl PackageManager {
             let logical = logical_module_id(&package.root, module_path);
             bundled_modules.push(BundledModule {
                 id: logical,
-                luau: if minify { minify_luau(&rewritten) } else { rewritten },
+                luau: if minify {
+                    minify_luau(&rewritten)
+                } else {
+                    rewritten
+                },
             });
             let _ = source;
         }
@@ -616,7 +654,12 @@ impl PackageManager {
                     .map(|candidate| (name.clone(), candidate.package_id.clone()))
             })
             .collect::<BTreeMap<_, _>>();
-        let module_iife = render_package_iife(&package.package_id, &bundled_modules, &manifest.entry, &dependency_ids);
+        let module_iife = render_package_iife(
+            &package.package_id,
+            &bundled_modules,
+            &manifest.entry,
+            &dependency_ids,
+        );
 
         Ok(PackageBundle {
             package_id: package.package_id.clone(),
@@ -711,7 +754,6 @@ fn parse_package_source(input: &str) -> PackageSource {
     }
 }
 
-
 fn split_source_ref(input: &str) -> (&str, Option<String>) {
     input
         .rsplit_once('@')
@@ -727,26 +769,40 @@ fn default_alias_for_source(source: &PackageSource, registry: &RegistryIndex) ->
             .file_name()
             .and_then(|value| value.to_str())
             .map(|value| value.to_string())
-            .ok_or_else(|| CompilerError::Other(format!("invalid local package path {}", path.display()))),
+            .ok_or_else(|| {
+                CompilerError::Other(format!("invalid local package path {}", path.display()))
+            }),
     }
     .and_then(|alias| {
         if registry.packages.contains_key(&alias) || !alias.is_empty() {
             Ok(alias)
         } else {
-            Err(CompilerError::Other("package alias cannot be empty".to_string()))
+            Err(CompilerError::Other(
+                "package alias cannot be empty".to_string(),
+            ))
         }
     })
 }
 
-fn default_config_value_for_source(source: &PackageSource, registry: &RegistryIndex) -> Result<String> {
+fn default_config_value_for_source(
+    source: &PackageSource,
+    registry: &RegistryIndex,
+) -> Result<String> {
     match source {
-        PackageSource::Registry { .. } => resolve_source(registry, source)
-            .map(|resolved| resolved.package_id),
-        PackageSource::GitHub { repo, requested_ref } => Ok(match requested_ref {
+        PackageSource::Registry { .. } => {
+            resolve_source(registry, source).map(|resolved| resolved.package_id)
+        }
+        PackageSource::GitHub {
+            repo,
+            requested_ref,
+        } => Ok(match requested_ref {
             Some(requested_ref) => format!("gh:{repo}@{requested_ref}"),
             None => format!("gh:{repo}"),
         }),
-        PackageSource::LocalPath { path, requested_ref } => Ok(match requested_ref {
+        PackageSource::LocalPath {
+            path,
+            requested_ref,
+        } => Ok(match requested_ref {
             Some(requested_ref) => format!("file:{}@{requested_ref}", path.display()),
             None => format!("file:{}", path.display()),
         }),
@@ -760,7 +816,9 @@ fn resolve_source(registry: &RegistryIndex, source: &PackageSource) -> Result<Re
             requested_version,
         } => {
             if let Some(entry) = registry.packages.get(name) {
-                let version = requested_version.clone().unwrap_or_else(|| entry.latest.clone());
+                let version = requested_version
+                    .clone()
+                    .unwrap_or_else(|| entry.latest.clone());
                 return Ok(ResolvedSource {
                     package_id: repo_tail(&entry.repo),
                     registry_name: Some(name.clone()),
@@ -775,7 +833,9 @@ fn resolve_source(registry: &RegistryIndex, source: &PackageSource) -> Result<Re
                 .iter()
                 .find(|(_, entry)| repo_tail(&entry.repo) == *name)
             {
-                let version = requested_version.clone().unwrap_or_else(|| entry.latest.clone());
+                let version = requested_version
+                    .clone()
+                    .unwrap_or_else(|| entry.latest.clone());
                 return Ok(ResolvedSource {
                     package_id: repo_tail(&entry.repo),
                     registry_name: Some(registry_name.clone()),
@@ -785,7 +845,9 @@ fn resolve_source(registry: &RegistryIndex, source: &PackageSource) -> Result<Re
                     local_path: None,
                 });
             }
-            Err(CompilerError::Other(format!("unknown package `{name}` in registry")))
+            Err(CompilerError::Other(format!(
+                "unknown package `{name}` in registry"
+            )))
         }
         PackageSource::GitHub {
             repo,
@@ -852,7 +914,10 @@ fn clone_package_repo(repo: &str, checkout_ref: Option<&str>, destination: &Path
         destination.to_string_lossy().as_ref(),
     ])?;
     if let Some(checkout_ref) = checkout_ref {
-        run_git_in(destination, &["fetch", "--tags", "--depth", "1", "origin", checkout_ref])?;
+        run_git_in(
+            destination,
+            &["fetch", "--tags", "--depth", "1", "origin", checkout_ref],
+        )?;
         run_git_in(destination, &["checkout", checkout_ref])?;
     }
     let git_dir = destination.join(".git");
@@ -903,7 +968,9 @@ fn git_head_sha(dir: &Path) -> Result<String> {
         .output()
         .map_err(|source| CompilerError::Other(source.to_string()))?;
     if !output.status.success() {
-        return Err(CompilerError::Other("git rev-parse HEAD failed".to_string()));
+        return Err(CompilerError::Other(
+            "git rev-parse HEAD failed".to_string(),
+        ));
     }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
@@ -968,7 +1035,10 @@ fn collect_files(root: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
     Ok(())
 }
 
-fn package_compiler(package: &InstalledPackage, dependencies: &BTreeMap<String, String>) -> Result<Compiler> {
+fn package_compiler(
+    package: &InstalledPackage,
+    dependencies: &BTreeMap<String, String>,
+) -> Result<Compiler> {
     let mut config = XluauConfig::default();
     config.include = vec!["**/*.xl".to_string()];
     config.base_dir = PathBuf::new();
@@ -1009,7 +1079,12 @@ fn collect_package_module_recursive(
     })?;
     for dependency in resolver.collect_dependencies(&source, &normalized)? {
         if dependency.specifier.starts_with('.') {
-            collect_package_module_recursive(resolver, &dependency.resolved.source_path, seen, ordered)?;
+            collect_package_module_recursive(
+                resolver,
+                &dependency.resolved.source_path,
+                seen,
+                ordered,
+            )?;
         }
     }
     ordered.push(normalized);
@@ -1049,8 +1124,13 @@ fn rewrite_bundle_requires(
         if call.specifier.starts_with('.') {
             let resolved = resolver
                 .resolve_require_path(current_path, &call.specifier)?
-                .ok_or_else(|| CompilerError::Other(format!("unable to resolve {}", call.specifier)))?;
-            let module_id = logical_module_id(current_path.parent().unwrap_or(Path::new(".")), &resolved.source_path);
+                .ok_or_else(|| {
+                    CompilerError::Other(format!("unable to resolve {}", call.specifier))
+                })?;
+            let module_id = logical_module_id(
+                current_path.parent().unwrap_or(Path::new(".")),
+                &resolved.source_path,
+            );
             rewritten.replace_range(
                 call.start..call.end,
                 &format!("__xlpkg_require({})", quote_string(&module_id)),
@@ -1104,13 +1184,17 @@ fn find_require_calls(source: &str) -> Result<Vec<RequireCallInfo>> {
             }
             if matches!(
                 tokens.get(index + 1).map(|token| &token.kind),
-                Some(crate::lexer::TokenKind::Symbol(crate::lexer::Symbol::LParen))
+                Some(crate::lexer::TokenKind::Symbol(
+                    crate::lexer::Symbol::LParen
+                ))
             ) && matches!(
                 tokens.get(index + 2).map(|token| &token.kind),
                 Some(crate::lexer::TokenKind::String)
             ) && matches!(
                 tokens.get(index + 3).map(|token| &token.kind),
-                Some(crate::lexer::TokenKind::Symbol(crate::lexer::Symbol::RParen))
+                Some(crate::lexer::TokenKind::Symbol(
+                    crate::lexer::Symbol::RParen
+                ))
             ) {
                 let string_token = &tokens[index + 2];
                 let end_token = &tokens[index + 3];
@@ -1145,7 +1229,11 @@ fn quote_string(text: &str) -> String {
 fn render_packages_bundle(packages: &[PackageBundle]) -> String {
     let mut lines = vec![
         "-- Generated by xluau. Do not edit manually.".to_string(),
-        format!("-- xluau v{} | generated {}", XLUAU_VERSION, current_timestamp()),
+        format!(
+            "-- xluau v{} | generated {}",
+            XLUAU_VERSION,
+            current_timestamp()
+        ),
         String::new(),
     ];
     for package in packages {
@@ -1197,7 +1285,11 @@ fn render_package_iife(
             "{{ {} }}",
             dependency_ids
                 .iter()
-                .map(|(alias, package_id)| format!("{} = _{}", sanitize_identifier(alias), sanitize_identifier(package_id)))
+                .map(|(alias, package_id)| format!(
+                    "{} = _{}",
+                    sanitize_identifier(alias),
+                    sanitize_identifier(package_id)
+                ))
                 .collect::<Vec<_>>()
                 .join(", ")
         )
@@ -1214,13 +1306,19 @@ fn render_package_iife(
     lines.push("        return value".to_string());
     lines.push("    end".to_string());
     for module in modules {
-        lines.push(format!("    __modules[{}] = function()", quote_string(&module.id)));
+        lines.push(format!(
+            "    __modules[{}] = function()",
+            quote_string(&module.id)
+        ));
         for line in module.luau.lines() {
             lines.push(format!("        {line}"));
         }
         lines.push("    end".to_string());
     }
-    lines.push(format!("    return __xlpkg_require({})", quote_string(&entry_id)));
+    lines.push(format!(
+        "    return __xlpkg_require({})",
+        quote_string(&entry_id)
+    ));
     lines.push(format!("end)({deps_table})"));
     lines.join("\n")
 }
@@ -1288,12 +1386,12 @@ fn collect_exported_types(source: &str) -> Vec<(String, String)> {
         {
             let name = name.trim().to_string();
             let mut body_lines = vec![body_start.trim().to_string()];
-            let mut brace_depth = body_start.matches('{').count() as i32
-                - body_start.matches('}').count() as i32;
-            let mut paren_depth = body_start.matches('(').count() as i32
-                - body_start.matches(')').count() as i32;
-            let mut bracket_depth = body_start.matches('[').count() as i32
-                - body_start.matches(']').count() as i32;
+            let mut brace_depth =
+                body_start.matches('{').count() as i32 - body_start.matches('}').count() as i32;
+            let mut paren_depth =
+                body_start.matches('(').count() as i32 - body_start.matches(')').count() as i32;
+            let mut bracket_depth =
+                body_start.matches('[').count() as i32 - body_start.matches(']').count() as i32;
             while brace_depth > 0 || paren_depth > 0 || bracket_depth > 0 {
                 index += 1;
                 if index >= lines.len() {
@@ -1303,7 +1401,8 @@ fn collect_exported_types(source: &str) -> Vec<(String, String)> {
                 body_lines.push(next.to_string());
                 brace_depth += next.matches('{').count() as i32 - next.matches('}').count() as i32;
                 paren_depth += next.matches('(').count() as i32 - next.matches(')').count() as i32;
-                bracket_depth += next.matches('[').count() as i32 - next.matches(']').count() as i32;
+                bracket_depth +=
+                    next.matches('[').count() as i32 - next.matches(']').count() as i32;
             }
             exported.push((name, body_lines.join("\n")));
         }
@@ -1312,7 +1411,11 @@ fn collect_exported_types(source: &str) -> Vec<(String, String)> {
     exported
 }
 
-fn rewrite_exported_type_references(package_id: &str, body: &str, exported_names: &[String]) -> String {
+fn rewrite_exported_type_references(
+    package_id: &str,
+    body: &str,
+    exported_names: &[String],
+) -> String {
     let prefix = format!("{}_", sanitize_identifier(package_id));
     let mut rewritten = body.to_string();
     for name in exported_names {
@@ -1358,7 +1461,10 @@ fn infer_public_field_names(source: &str) -> Vec<String> {
         if trimmed == "return {" || trimmed.starts_with("return {") {
             let mut inline = trimmed.trim_start_matches("return").trim().to_string();
             if inline.starts_with('{') && inline.ends_with('}') && inline != "{" {
-                inline = inline.trim_start_matches('{').trim_end_matches('}').to_string();
+                inline = inline
+                    .trim_start_matches('{')
+                    .trim_end_matches('}')
+                    .to_string();
                 names.extend(extract_table_keys(&inline));
                 break;
             }
@@ -1396,7 +1502,7 @@ mod tests {
 
     use super::{
         PackageManager, RegistryIndex, RegistryPackage, collect_exported_types,
-        default_config_value_for_source, default_alias_for_source, infer_package_types,
+        default_alias_for_source, default_config_value_for_source, infer_package_types,
         infer_public_field_names, parse_package_source, read_registry,
     };
     use crate::config::XluauConfig;
@@ -1447,7 +1553,10 @@ mod tests {
             )]),
         };
         let source = parse_package_source("http");
-        assert_eq!(default_alias_for_source(&source, &registry).unwrap(), "http");
+        assert_eq!(
+            default_alias_for_source(&source, &registry).unwrap(),
+            "http"
+        );
         assert_eq!(
             default_config_value_for_source(&source, &registry).unwrap(),
             "xluau-http"
@@ -1501,9 +1610,17 @@ return {
 }
 "#,
         );
-        assert!(aliases.contains(&"export type xluau_json_JsonPrimitive = nil | boolean | number | string".to_string()));
-        assert!(aliases.contains(&"export type xluau_json_JsonArray = { xluau_json_JsonValue }".to_string()));
-        assert!(aliases.contains(&"export type xluau_json_JsonObject = { [string]: xluau_json_JsonValue }".to_string()));
+        assert!(aliases.contains(
+            &"export type xluau_json_JsonPrimitive = nil | boolean | number | string".to_string()
+        ));
+        assert!(
+            aliases.contains(
+                &"export type xluau_json_JsonArray = { xluau_json_JsonValue }".to_string()
+            )
+        );
+        assert!(aliases.contains(
+            &"export type xluau_json_JsonObject = { [string]: xluau_json_JsonValue }".to_string()
+        ));
         assert!(aliases.contains(&"export type xluau_json_JsonValue = xluau_json_JsonPrimitive | xluau_json_JsonArray | xluau_json_JsonObject".to_string()));
         assert!(surface.contains("decode: any"));
     }
@@ -1590,10 +1707,7 @@ return {
             registry: root.join("index.json").to_string_lossy().to_string(),
             ..XluauConfig::default()
         };
-        write_file(
-            &root.join("index.json"),
-            r#"{"version":1,"packages":{}}"#,
-        );
+        write_file(&root.join("index.json"), r#"{"version":1,"packages":{}}"#);
         write_file(
             &root.join("xluau.config.json"),
             &serde_json::to_string_pretty(&config).unwrap(),

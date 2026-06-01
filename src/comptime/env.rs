@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::{compiler::{CompilerError, Result}};
+use crate::compiler::{CompilerError, Result};
 
 use super::value::{CtFunctionHandle, CtValue};
 

@@ -105,13 +105,22 @@ impl Server {
             | Some("workspace/didChangeConfiguration")
             | Some("workspace/didChangeWatchedFiles") => {}
             Some("textDocument/didOpen") => {
-                let uri = params["textDocument"]["uri"].as_str().unwrap_or_default().to_string();
-                let text = params["textDocument"]["text"].as_str().unwrap_or_default().to_string();
+                let uri = params["textDocument"]["uri"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string();
+                let text = params["textDocument"]["text"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string();
                 self.documents.insert(uri.clone(), text.clone());
                 self.publish_diagnostics(writer, &uri, &text)?;
             }
             Some("textDocument/didChange") => {
-                let uri = params["textDocument"]["uri"].as_str().unwrap_or_default().to_string();
+                let uri = params["textDocument"]["uri"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string();
                 let text = params["contentChanges"]
                     .as_array()
                     .and_then(|changes| changes.last())
@@ -123,7 +132,10 @@ impl Server {
                 self.publish_diagnostics(writer, &uri, &text)?;
             }
             Some("textDocument/didClose") => {
-                let uri = params["textDocument"]["uri"].as_str().unwrap_or_default().to_string();
+                let uri = params["textDocument"]["uri"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string();
                 self.documents.remove(&uri);
                 write_message(
                     writer,
@@ -159,7 +171,11 @@ impl Server {
                     let text = self.document_text(uri)?;
                     let path = uri_to_path(uri)?;
                     let index = build_document_index(path, text);
-                    let symbols = index.declarations.iter().map(decl_to_symbol).collect::<Vec<_>>();
+                    let symbols = index
+                        .declarations
+                        .iter()
+                        .map(decl_to_symbol)
+                        .collect::<Vec<_>>();
                     write_message(
                         writer,
                         &json!({
@@ -290,7 +306,8 @@ impl Server {
                 items.push(item);
             }
         } else if let Some((token_index, token)) = token_at_offset(&index.tokens, offset) {
-            if token.kind == TokenKind::String && is_require_string_token(&index.tokens, token_index)
+            if token.kind == TokenKind::String
+                && is_require_string_token(&index.tokens, token_index)
             {
                 let compiler = compiler_for_path(&path)?;
                 for (alias, target) in &compiler.config.paths {
@@ -357,7 +374,8 @@ impl Server {
         let offset = position_to_offset(&text, line, character);
 
         if let Some((token_index, token)) = token_at_offset(&index.tokens, offset) {
-            if token.kind == TokenKind::String && is_require_string_token(&index.tokens, token_index)
+            if token.kind == TokenKind::String
+                && is_require_string_token(&index.tokens, token_index)
             {
                 let specifier = decode_string_token(token);
                 let compiler = compiler_for_path(&path)?;
@@ -426,7 +444,8 @@ impl Server {
         let offset = position_to_offset(&text, line, character);
 
         if let Some((token_index, token)) = token_at_offset(&index.tokens, offset) {
-            if token.kind == TokenKind::String && is_require_string_token(&index.tokens, token_index)
+            if token.kind == TokenKind::String
+                && is_require_string_token(&index.tokens, token_index)
             {
                 let specifier = decode_string_token(token);
                 let compiler = compiler_for_path(&path)?;
@@ -466,11 +485,13 @@ impl Server {
         let offset = position_to_offset(&text, line, character);
 
         if let Some((token_index, token)) = token_at_offset(&index.tokens, offset) {
-            if token.kind == TokenKind::Identifier && find_declaration(&index, &token.lexeme).is_some()
+            if token.kind == TokenKind::Identifier
+                && find_declaration(&index, &token.lexeme).is_some()
             {
                 return Ok(range_from_token(token));
             }
-            if token.kind == TokenKind::String && is_require_string_token(&index.tokens, token_index)
+            if token.kind == TokenKind::String
+                && is_require_string_token(&index.tokens, token_index)
             {
                 return Ok(range_from_token(token));
             }
@@ -492,22 +513,28 @@ impl Server {
         let mut changes = BTreeMap::<String, Vec<Value>>::new();
 
         if let Some((token_index, token)) = token_at_offset(&index.tokens, offset) {
-            if token.kind == TokenKind::Identifier && find_declaration(&index, &token.lexeme).is_some()
+            if token.kind == TokenKind::Identifier
+                && find_declaration(&index, &token.lexeme).is_some()
             {
                 let edits = index
                     .tokens
                     .iter()
-                    .filter(|candidate| candidate.kind == TokenKind::Identifier && candidate.lexeme == token.lexeme)
-                    .map(|candidate| json!({
-                        "range": range_from_token(candidate),
-                        "newText": new_name
-                    }))
+                    .filter(|candidate| {
+                        candidate.kind == TokenKind::Identifier && candidate.lexeme == token.lexeme
+                    })
+                    .map(|candidate| {
+                        json!({
+                            "range": range_from_token(candidate),
+                            "newText": new_name
+                        })
+                    })
                     .collect::<Vec<_>>();
                 changes.insert(uri.to_string(), edits);
                 return Ok(json!({ "changes": changes }));
             }
 
-            if token.kind == TokenKind::String && is_require_string_token(&index.tokens, token_index)
+            if token.kind == TokenKind::String
+                && is_require_string_token(&index.tokens, token_index)
             {
                 let old_specifier = decode_string_token(token);
                 let compiler = compiler_for_path(&path)?;
@@ -656,93 +683,468 @@ const KEYWORD_COMPLETIONS: &[&str] = &[
 ];
 
 const BUILTIN_TYPES: &[BuiltinItem] = &[
-    BuiltinItem { name: "any", detail: "type any", hover: "```xluau\ntype any\n```", kind: KIND_TYPE },
-    BuiltinItem { name: "nil", detail: "type nil", hover: "```xluau\ntype nil\n```", kind: KIND_TYPE },
-    BuiltinItem { name: "boolean", detail: "type boolean", hover: "```xluau\ntype boolean\n```", kind: KIND_TYPE },
-    BuiltinItem { name: "number", detail: "type number", hover: "```xluau\ntype number\n```", kind: KIND_TYPE },
-    BuiltinItem { name: "string", detail: "type string / library", hover: "```xluau\ntype string\n```", kind: KIND_TYPE },
-    BuiltinItem { name: "thread", detail: "type thread", hover: "```xluau\ntype thread\n```", kind: KIND_TYPE },
-    BuiltinItem { name: "userdata", detail: "type userdata", hover: "```xluau\ntype userdata\n```", kind: KIND_TYPE },
-    BuiltinItem { name: "vector", detail: "type vector", hover: "```xluau\ntype vector\n```", kind: KIND_TYPE },
-    BuiltinItem { name: "buffer", detail: "type buffer / library", hover: "```xluau\ntype buffer\n```", kind: KIND_TYPE },
-    BuiltinItem { name: "unknown", detail: "type unknown", hover: "```xluau\ntype unknown\n```", kind: KIND_TYPE },
-    BuiltinItem { name: "never", detail: "type never", hover: "```xluau\ntype never\n```", kind: KIND_TYPE },
-    BuiltinItem { name: "table", detail: "type table / library", hover: "```xluau\ntype table\n```", kind: KIND_TYPE },
+    BuiltinItem {
+        name: "any",
+        detail: "type any",
+        hover: "```xluau\ntype any\n```",
+        kind: KIND_TYPE,
+    },
+    BuiltinItem {
+        name: "nil",
+        detail: "type nil",
+        hover: "```xluau\ntype nil\n```",
+        kind: KIND_TYPE,
+    },
+    BuiltinItem {
+        name: "boolean",
+        detail: "type boolean",
+        hover: "```xluau\ntype boolean\n```",
+        kind: KIND_TYPE,
+    },
+    BuiltinItem {
+        name: "number",
+        detail: "type number",
+        hover: "```xluau\ntype number\n```",
+        kind: KIND_TYPE,
+    },
+    BuiltinItem {
+        name: "string",
+        detail: "type string / library",
+        hover: "```xluau\ntype string\n```",
+        kind: KIND_TYPE,
+    },
+    BuiltinItem {
+        name: "thread",
+        detail: "type thread",
+        hover: "```xluau\ntype thread\n```",
+        kind: KIND_TYPE,
+    },
+    BuiltinItem {
+        name: "userdata",
+        detail: "type userdata",
+        hover: "```xluau\ntype userdata\n```",
+        kind: KIND_TYPE,
+    },
+    BuiltinItem {
+        name: "vector",
+        detail: "type vector",
+        hover: "```xluau\ntype vector\n```",
+        kind: KIND_TYPE,
+    },
+    BuiltinItem {
+        name: "buffer",
+        detail: "type buffer / library",
+        hover: "```xluau\ntype buffer\n```",
+        kind: KIND_TYPE,
+    },
+    BuiltinItem {
+        name: "unknown",
+        detail: "type unknown",
+        hover: "```xluau\ntype unknown\n```",
+        kind: KIND_TYPE,
+    },
+    BuiltinItem {
+        name: "never",
+        detail: "type never",
+        hover: "```xluau\ntype never\n```",
+        kind: KIND_TYPE,
+    },
+    BuiltinItem {
+        name: "table",
+        detail: "type table / library",
+        hover: "```xluau\ntype table\n```",
+        kind: KIND_TYPE,
+    },
 ];
 
 const BUILTIN_GLOBALS: &[BuiltinItem] = &[
-    BuiltinItem { name: "assert", detail: "assert(v, message?)", hover: "```xluau\nfunction assert(value: any, message: string?): any\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "error", detail: "error(message, level?)", hover: "```xluau\nfunction error(message: any, level: number?): never\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "getmetatable", detail: "getmetatable(value)", hover: "```xluau\nfunction getmetatable(value: any): any\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "ipairs", detail: "ipairs(table)", hover: "```xluau\nfunction ipairs<T>(table: {T}): any\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "next", detail: "next(table, index?)", hover: "```xluau\nfunction next(table: table, index: any?): any\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "pairs", detail: "pairs(table)", hover: "```xluau\nfunction pairs(table: table): any\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "pcall", detail: "pcall(fn, ...)", hover: "```xluau\nfunction pcall(fn: (...any) -> ...any, ...: any): (boolean, ...any)\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "print", detail: "print(...)", hover: "```xluau\nfunction print(...: any)\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "rawequal", detail: "rawequal(a, b)", hover: "```xluau\nfunction rawequal(a: any, b: any): boolean\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "rawget", detail: "rawget(table, key)", hover: "```xluau\nfunction rawget(table: table, key: any): any\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "rawlen", detail: "rawlen(value)", hover: "```xluau\nfunction rawlen(value: any): number\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "rawset", detail: "rawset(table, key, value)", hover: "```xluau\nfunction rawset(table: table, key: any, value: any): table\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "select", detail: "select(index, ...)", hover: "```xluau\nfunction select(index: any, ...: any): ...any\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "setmetatable", detail: "setmetatable(table, mt)", hover: "```xluau\nfunction setmetatable(table: table, mt: table?): table\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "tonumber", detail: "tonumber(value, base?)", hover: "```xluau\nfunction tonumber(value: any, base: number?): number?\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "tostring", detail: "tostring(value)", hover: "```xluau\nfunction tostring(value: any): string\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "type", detail: "type(value)", hover: "```xluau\nfunction type(value: any): string\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "typeof", detail: "typeof(value)", hover: "```xluau\nfunction typeof(value: any): string\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "unpack", detail: "unpack(list, i?, j?)", hover: "```xluau\nfunction unpack(list: table, i: number?, j: number?): ...any\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "math", detail: "math library", hover: "```xluau\nmath\n```", kind: KIND_MODULE },
-    BuiltinItem { name: "string", detail: "string library", hover: "```xluau\nstring\n```", kind: KIND_MODULE },
-    BuiltinItem { name: "table", detail: "table library", hover: "```xluau\ntable\n```", kind: KIND_MODULE },
-    BuiltinItem { name: "utf8", detail: "utf8 library", hover: "```xluau\nutf8\n```", kind: KIND_MODULE },
-    BuiltinItem { name: "coroutine", detail: "coroutine library", hover: "```xluau\ncoroutine\n```", kind: KIND_MODULE },
-    BuiltinItem { name: "os", detail: "os library", hover: "```xluau\nos\n```", kind: KIND_MODULE },
-    BuiltinItem { name: "debug", detail: "debug library", hover: "```xluau\ndebug\n```", kind: KIND_MODULE },
-    BuiltinItem { name: "bit32", detail: "bit32 library", hover: "```xluau\nbit32\n```", kind: KIND_MODULE },
+    BuiltinItem {
+        name: "assert",
+        detail: "assert(v, message?)",
+        hover: "```xluau\nfunction assert(value: any, message: string?): any\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "error",
+        detail: "error(message, level?)",
+        hover: "```xluau\nfunction error(message: any, level: number?): never\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "getmetatable",
+        detail: "getmetatable(value)",
+        hover: "```xluau\nfunction getmetatable(value: any): any\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "ipairs",
+        detail: "ipairs(table)",
+        hover: "```xluau\nfunction ipairs<T>(table: {T}): any\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "next",
+        detail: "next(table, index?)",
+        hover: "```xluau\nfunction next(table: table, index: any?): any\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "pairs",
+        detail: "pairs(table)",
+        hover: "```xluau\nfunction pairs(table: table): any\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "pcall",
+        detail: "pcall(fn, ...)",
+        hover: "```xluau\nfunction pcall(fn: (...any) -> ...any, ...: any): (boolean, ...any)\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "print",
+        detail: "print(...)",
+        hover: "```xluau\nfunction print(...: any)\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "rawequal",
+        detail: "rawequal(a, b)",
+        hover: "```xluau\nfunction rawequal(a: any, b: any): boolean\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "rawget",
+        detail: "rawget(table, key)",
+        hover: "```xluau\nfunction rawget(table: table, key: any): any\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "rawlen",
+        detail: "rawlen(value)",
+        hover: "```xluau\nfunction rawlen(value: any): number\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "rawset",
+        detail: "rawset(table, key, value)",
+        hover: "```xluau\nfunction rawset(table: table, key: any, value: any): table\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "select",
+        detail: "select(index, ...)",
+        hover: "```xluau\nfunction select(index: any, ...: any): ...any\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "setmetatable",
+        detail: "setmetatable(table, mt)",
+        hover: "```xluau\nfunction setmetatable(table: table, mt: table?): table\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "tonumber",
+        detail: "tonumber(value, base?)",
+        hover: "```xluau\nfunction tonumber(value: any, base: number?): number?\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "tostring",
+        detail: "tostring(value)",
+        hover: "```xluau\nfunction tostring(value: any): string\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "type",
+        detail: "type(value)",
+        hover: "```xluau\nfunction type(value: any): string\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "typeof",
+        detail: "typeof(value)",
+        hover: "```xluau\nfunction typeof(value: any): string\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "unpack",
+        detail: "unpack(list, i?, j?)",
+        hover: "```xluau\nfunction unpack(list: table, i: number?, j: number?): ...any\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "math",
+        detail: "math library",
+        hover: "```xluau\nmath\n```",
+        kind: KIND_MODULE,
+    },
+    BuiltinItem {
+        name: "string",
+        detail: "string library",
+        hover: "```xluau\nstring\n```",
+        kind: KIND_MODULE,
+    },
+    BuiltinItem {
+        name: "table",
+        detail: "table library",
+        hover: "```xluau\ntable\n```",
+        kind: KIND_MODULE,
+    },
+    BuiltinItem {
+        name: "utf8",
+        detail: "utf8 library",
+        hover: "```xluau\nutf8\n```",
+        kind: KIND_MODULE,
+    },
+    BuiltinItem {
+        name: "coroutine",
+        detail: "coroutine library",
+        hover: "```xluau\ncoroutine\n```",
+        kind: KIND_MODULE,
+    },
+    BuiltinItem {
+        name: "os",
+        detail: "os library",
+        hover: "```xluau\nos\n```",
+        kind: KIND_MODULE,
+    },
+    BuiltinItem {
+        name: "debug",
+        detail: "debug library",
+        hover: "```xluau\ndebug\n```",
+        kind: KIND_MODULE,
+    },
+    BuiltinItem {
+        name: "bit32",
+        detail: "bit32 library",
+        hover: "```xluau\nbit32\n```",
+        kind: KIND_MODULE,
+    },
 ];
 
 const STRING_MEMBERS: &[BuiltinItem] = &[
-    BuiltinItem { name: "byte", detail: "byte(i?, j?) -> ...number", hover: "```xluau\nfunction string.byte(self: string, i: number?, j: number?): ...number\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "find", detail: "find(pattern, init?, plain?) -> (number?, number?)", hover: "```xluau\nfunction string.find(self: string, pattern: string, init: number?, plain: boolean?): (number?, number?)\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "format", detail: "format(...)", hover: "```xluau\nfunction string.format(self: string, ...: any): string\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "gmatch", detail: "gmatch(pattern)", hover: "```xluau\nfunction string.gmatch(self: string, pattern: string): any\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "gsub", detail: "gsub(pattern, repl, n?) -> (string, number)", hover: "```xluau\nfunction string.gsub(self: string, pattern: string, repl: any, n: number?): (string, number)\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "len", detail: "len() -> number", hover: "```xluau\nfunction string.len(self: string): number\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "lower", detail: "lower() -> string", hover: "```xluau\nfunction string.lower(self: string): string\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "match", detail: "match(pattern, init?) -> ...any", hover: "```xluau\nfunction string.match(self: string, pattern: string, init: number?): ...any\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "rep", detail: "rep(n, sep?) -> string", hover: "```xluau\nfunction string.rep(self: string, n: number, sep: string?): string\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "reverse", detail: "reverse() -> string", hover: "```xluau\nfunction string.reverse(self: string): string\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "split", detail: "split(sep?) -> {string}", hover: "```xluau\nfunction string.split(self: string, sep: string?): {string}\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "sub", detail: "sub(i, j?) -> string", hover: "```xluau\nfunction string.sub(self: string, i: number, j: number?): string\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "upper", detail: "upper() -> string", hover: "```xluau\nfunction string.upper(self: string): string\n```", kind: KIND_FUNCTION },
+    BuiltinItem {
+        name: "byte",
+        detail: "byte(i?, j?) -> ...number",
+        hover: "```xluau\nfunction string.byte(self: string, i: number?, j: number?): ...number\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "find",
+        detail: "find(pattern, init?, plain?) -> (number?, number?)",
+        hover: "```xluau\nfunction string.find(self: string, pattern: string, init: number?, plain: boolean?): (number?, number?)\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "format",
+        detail: "format(...)",
+        hover: "```xluau\nfunction string.format(self: string, ...: any): string\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "gmatch",
+        detail: "gmatch(pattern)",
+        hover: "```xluau\nfunction string.gmatch(self: string, pattern: string): any\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "gsub",
+        detail: "gsub(pattern, repl, n?) -> (string, number)",
+        hover: "```xluau\nfunction string.gsub(self: string, pattern: string, repl: any, n: number?): (string, number)\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "len",
+        detail: "len() -> number",
+        hover: "```xluau\nfunction string.len(self: string): number\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "lower",
+        detail: "lower() -> string",
+        hover: "```xluau\nfunction string.lower(self: string): string\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "match",
+        detail: "match(pattern, init?) -> ...any",
+        hover: "```xluau\nfunction string.match(self: string, pattern: string, init: number?): ...any\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "rep",
+        detail: "rep(n, sep?) -> string",
+        hover: "```xluau\nfunction string.rep(self: string, n: number, sep: string?): string\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "reverse",
+        detail: "reverse() -> string",
+        hover: "```xluau\nfunction string.reverse(self: string): string\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "split",
+        detail: "split(sep?) -> {string}",
+        hover: "```xluau\nfunction string.split(self: string, sep: string?): {string}\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "sub",
+        detail: "sub(i, j?) -> string",
+        hover: "```xluau\nfunction string.sub(self: string, i: number, j: number?): string\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "upper",
+        detail: "upper() -> string",
+        hover: "```xluau\nfunction string.upper(self: string): string\n```",
+        kind: KIND_FUNCTION,
+    },
 ];
 
 const TABLE_MEMBERS: &[BuiltinItem] = &[
-    BuiltinItem { name: "clear", detail: "clear(table)", hover: "```xluau\nfunction table.clear(t: table)\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "clone", detail: "clone(table) -> table", hover: "```xluau\nfunction table.clone(t: table): table\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "concat", detail: "concat(list, sep?, i?, j?) -> string", hover: "```xluau\nfunction table.concat(list: table, sep: string?, i: number?, j: number?): string\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "create", detail: "create(n, value?) -> table", hover: "```xluau\nfunction table.create(n: number, value: any?): table\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "find", detail: "find(list, value, init?) -> number?", hover: "```xluau\nfunction table.find(list: table, value: any, init: number?): number?\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "freeze", detail: "freeze(table) -> table", hover: "```xluau\nfunction table.freeze(t: table): table\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "insert", detail: "insert(list, pos?, value)", hover: "```xluau\nfunction table.insert(list: table, pos: number?, value: any)\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "move", detail: "move(a1, f, e, t, a2?)", hover: "```xluau\nfunction table.move(a1: table, f: number, e: number, t: number, a2: table?): table\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "pack", detail: "pack(...) -> table", hover: "```xluau\nfunction table.pack(...: any): table\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "remove", detail: "remove(list, pos?) -> any", hover: "```xluau\nfunction table.remove(list: table, pos: number?): any\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "sort", detail: "sort(list, comp?)", hover: "```xluau\nfunction table.sort(list: table, comp: ((any, any) -> boolean)?)\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "unpack", detail: "unpack(list, i?, j?) -> ...any", hover: "```xluau\nfunction table.unpack(list: table, i: number?, j: number?): ...any\n```", kind: KIND_FUNCTION },
+    BuiltinItem {
+        name: "clear",
+        detail: "clear(table)",
+        hover: "```xluau\nfunction table.clear(t: table)\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "clone",
+        detail: "clone(table) -> table",
+        hover: "```xluau\nfunction table.clone(t: table): table\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "concat",
+        detail: "concat(list, sep?, i?, j?) -> string",
+        hover: "```xluau\nfunction table.concat(list: table, sep: string?, i: number?, j: number?): string\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "create",
+        detail: "create(n, value?) -> table",
+        hover: "```xluau\nfunction table.create(n: number, value: any?): table\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "find",
+        detail: "find(list, value, init?) -> number?",
+        hover: "```xluau\nfunction table.find(list: table, value: any, init: number?): number?\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "freeze",
+        detail: "freeze(table) -> table",
+        hover: "```xluau\nfunction table.freeze(t: table): table\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "insert",
+        detail: "insert(list, pos?, value)",
+        hover: "```xluau\nfunction table.insert(list: table, pos: number?, value: any)\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "move",
+        detail: "move(a1, f, e, t, a2?)",
+        hover: "```xluau\nfunction table.move(a1: table, f: number, e: number, t: number, a2: table?): table\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "pack",
+        detail: "pack(...) -> table",
+        hover: "```xluau\nfunction table.pack(...: any): table\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "remove",
+        detail: "remove(list, pos?) -> any",
+        hover: "```xluau\nfunction table.remove(list: table, pos: number?): any\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "sort",
+        detail: "sort(list, comp?)",
+        hover: "```xluau\nfunction table.sort(list: table, comp: ((any, any) -> boolean)?)\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "unpack",
+        detail: "unpack(list, i?, j?) -> ...any",
+        hover: "```xluau\nfunction table.unpack(list: table, i: number?, j: number?): ...any\n```",
+        kind: KIND_FUNCTION,
+    },
 ];
 
 const MATH_MEMBERS: &[BuiltinItem] = &[
-    BuiltinItem { name: "abs", detail: "abs(x) -> number", hover: "```xluau\nfunction math.abs(x: number): number\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "ceil", detail: "ceil(x) -> number", hover: "```xluau\nfunction math.ceil(x: number): number\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "clamp", detail: "clamp(x, min, max) -> number", hover: "```xluau\nfunction math.clamp(x: number, min: number, max: number): number\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "floor", detail: "floor(x) -> number", hover: "```xluau\nfunction math.floor(x: number): number\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "huge", detail: "huge: number", hover: "```xluau\nmath.huge: number\n```", kind: KIND_PROPERTY },
-    BuiltinItem { name: "max", detail: "max(...) -> number", hover: "```xluau\nfunction math.max(...: number): number\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "min", detail: "min(...) -> number", hover: "```xluau\nfunction math.min(...: number): number\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "pi", detail: "pi: number", hover: "```xluau\nmath.pi: number\n```", kind: KIND_PROPERTY },
-    BuiltinItem { name: "random", detail: "random(m?, n?) -> number", hover: "```xluau\nfunction math.random(m: number?, n: number?): number\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "round", detail: "round(x) -> number", hover: "```xluau\nfunction math.round(x: number): number\n```", kind: KIND_FUNCTION },
-    BuiltinItem { name: "sqrt", detail: "sqrt(x) -> number", hover: "```xluau\nfunction math.sqrt(x: number): number\n```", kind: KIND_FUNCTION },
+    BuiltinItem {
+        name: "abs",
+        detail: "abs(x) -> number",
+        hover: "```xluau\nfunction math.abs(x: number): number\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "ceil",
+        detail: "ceil(x) -> number",
+        hover: "```xluau\nfunction math.ceil(x: number): number\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "clamp",
+        detail: "clamp(x, min, max) -> number",
+        hover: "```xluau\nfunction math.clamp(x: number, min: number, max: number): number\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "floor",
+        detail: "floor(x) -> number",
+        hover: "```xluau\nfunction math.floor(x: number): number\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "huge",
+        detail: "huge: number",
+        hover: "```xluau\nmath.huge: number\n```",
+        kind: KIND_PROPERTY,
+    },
+    BuiltinItem {
+        name: "max",
+        detail: "max(...) -> number",
+        hover: "```xluau\nfunction math.max(...: number): number\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "min",
+        detail: "min(...) -> number",
+        hover: "```xluau\nfunction math.min(...: number): number\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "pi",
+        detail: "pi: number",
+        hover: "```xluau\nmath.pi: number\n```",
+        kind: KIND_PROPERTY,
+    },
+    BuiltinItem {
+        name: "random",
+        detail: "random(m?, n?) -> number",
+        hover: "```xluau\nfunction math.random(m: number?, n: number?): number\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "round",
+        detail: "round(x) -> number",
+        hover: "```xluau\nfunction math.round(x: number): number\n```",
+        kind: KIND_FUNCTION,
+    },
+    BuiltinItem {
+        name: "sqrt",
+        detail: "sqrt(x) -> number",
+        hover: "```xluau\nfunction math.sqrt(x: number): number\n```",
+        kind: KIND_FUNCTION,
+    },
 ];
 
 #[derive(Debug, Clone)]
@@ -843,7 +1245,11 @@ fn error_to_diagnostics(error: CompilerError) -> Vec<Value> {
 
 fn diagnostic_from_message(message: &str) -> Value {
     if let Some((line, col)) = extract_one_based_position(message) {
-        diagnostic(line.saturating_sub(1), col.saturating_sub(1), message.to_string())
+        diagnostic(
+            line.saturating_sub(1),
+            col.saturating_sub(1),
+            message.to_string(),
+        )
     } else {
         diagnostic(0, 0, message.to_string())
     }
@@ -882,9 +1288,13 @@ fn build_document_index(path: PathBuf, source: String) -> DocumentIndex {
         for stmt in &program.block {
             match stmt {
                 Stmt::Function(function) => {
-                    if let Some(name_span) =
-                        find_identifier_span(&tokens, function.span.start, function.span.end, &function.name.root, 0)
-                    {
+                    if let Some(name_span) = find_identifier_span(
+                        &tokens,
+                        function.span.start,
+                        function.span.end,
+                        &function.name.root,
+                        0,
+                    ) {
                         let signature = render_function_signature(function);
                         declarations.push(Declaration {
                             name: function.name.root.clone(),
@@ -904,9 +1314,13 @@ fn build_document_index(path: PathBuf, source: String) -> DocumentIndex {
                     }
                 }
                 Stmt::Object(object) => {
-                    if let Some(name_span) =
-                        find_identifier_span(&tokens, object.span.start, object.span.end, &object.name, 0)
-                    {
+                    if let Some(name_span) = find_identifier_span(
+                        &tokens,
+                        object.span.start,
+                        object.span.end,
+                        &object.name,
+                        0,
+                    ) {
                         let mut members = Vec::new();
                         for field in &object.fields {
                             members.push(MemberInfo {
@@ -973,9 +1387,13 @@ fn build_document_index(path: PathBuf, source: String) -> DocumentIndex {
                     }
                 }
                 Stmt::Signal(signal) => {
-                    if let Some(name_span) =
-                        find_identifier_span(&tokens, signal.span.start, signal.span.end, &signal.name, 0)
-                    {
+                    if let Some(name_span) = find_identifier_span(
+                        &tokens,
+                        signal.span.start,
+                        signal.span.end,
+                        &signal.name,
+                        0,
+                    ) {
                         let signature = render_signal_signature(signal);
                         declarations.push(Declaration {
                             name: signal.name.clone(),
@@ -1006,7 +1424,8 @@ fn build_document_index(path: PathBuf, source: String) -> DocumentIndex {
                                 value_kinds.insert(name.clone(), kind);
                             }
                         } else if let Some(value) = &state.value
-                            && let Some(kind) = infer_expr_value_kind(value, &typed_bindings, &value_kinds)
+                            && let Some(kind) =
+                                infer_expr_value_kind(value, &typed_bindings, &value_kinds)
                         {
                             value_kinds.insert(name.clone(), kind.clone());
                         }
@@ -1066,8 +1485,13 @@ fn build_document_index(path: PathBuf, source: String) -> DocumentIndex {
                             pattern: Pattern::Name(name),
                             type_annotation,
                         } = binding
-                            && let Some(name_span) =
-                                find_identifier_span(&tokens, local.span.start, local.span.end, name, occurrence)
+                            && let Some(name_span) = find_identifier_span(
+                                &tokens,
+                                local.span.start,
+                                local.span.end,
+                                name,
+                                occurrence,
+                            )
                         {
                             occurrence += 1;
                             if let Some(annotation) = type_annotation {
@@ -1075,8 +1499,12 @@ fn build_document_index(path: PathBuf, source: String) -> DocumentIndex {
                                 if let Some(kind) = value_kind_from_annotation(annotation) {
                                     value_kinds.insert(name.clone(), kind);
                                 }
-                            } else if let Some(value) = local.values.get(occurrence - 1).or_else(|| local.values.first())
-                                && let Some(kind) = infer_expr_value_kind(value, &typed_bindings, &value_kinds)
+                            } else if let Some(value) = local
+                                .values
+                                .get(occurrence - 1)
+                                .or_else(|| local.values.first())
+                                && let Some(kind) =
+                                    infer_expr_value_kind(value, &typed_bindings, &value_kinds)
                             {
                                 value_kinds.insert(name.clone(), kind);
                             }
@@ -1297,9 +1725,7 @@ fn find_identifier_span(
     tokens
         .iter()
         .filter(|token| {
-            token.kind == TokenKind::Identifier
-                && token.lexeme == name
-                && token.span.start >= start
+            token.kind == TokenKind::Identifier && token.lexeme == name && token.span.start >= start
         })
         .nth(occurrence)
         .map(|token| token.span)
@@ -1313,10 +1739,7 @@ fn first_keyword_span(
 ) -> Option<Span> {
     tokens
         .iter()
-        .find(|token| {
-            token.kind == TokenKind::Keyword(keyword)
-                && token.span.start >= start
-        })
+        .find(|token| token.kind == TokenKind::Keyword(keyword) && token.span.start >= start)
         .map(|token| token.span)
 }
 
@@ -1385,11 +1808,17 @@ fn infer_expr_value_kind(
         xluau::ast::Expr::Number(_) => Some(ValueKind::Number),
         xluau::ast::Expr::Bool(_) => Some(ValueKind::Boolean),
         xluau::ast::Expr::Nil => Some(ValueKind::Nil),
-        xluau::ast::Expr::Function(_) | xluau::ast::Expr::SignalHandler(_) => Some(ValueKind::Function),
+        xluau::ast::Expr::Function(_) | xluau::ast::Expr::SignalHandler(_) => {
+            Some(ValueKind::Function)
+        }
         xluau::ast::Expr::Paren(inner)
         | xluau::ast::Expr::Freeze(inner)
-        | xluau::ast::Expr::Yield(inner) => infer_expr_value_kind(inner, typed_bindings, value_kinds),
-        xluau::ast::Expr::TypeAssertion { annotation, .. } => value_kind_from_annotation(annotation),
+        | xluau::ast::Expr::Yield(inner) => {
+            infer_expr_value_kind(inner, typed_bindings, value_kinds)
+        }
+        xluau::ast::Expr::TypeAssertion { annotation, .. } => {
+            value_kind_from_annotation(annotation)
+        }
         xluau::ast::Expr::Name(name) => {
             if let Some(kind) = value_kinds.get(name) {
                 return Some(kind.clone());
@@ -1434,7 +1863,11 @@ fn infer_expr_value_kind(
             | xluau::ast::BinaryOp::NotEqual => Some(ValueKind::Boolean),
             xluau::ast::BinaryOp::Nullish => None,
         },
-        xluau::ast::Expr::Ternary { then_expr, else_expr, .. } => {
+        xluau::ast::Expr::Ternary {
+            then_expr,
+            else_expr,
+            ..
+        } => {
             let then_kind = infer_expr_value_kind(then_expr, typed_bindings, value_kinds);
             let else_kind = infer_expr_value_kind(else_expr, typed_bindings, value_kinds);
             if then_kind == else_kind {
@@ -1443,7 +1876,10 @@ fn infer_expr_value_kind(
                 None
             }
         }
-        xluau::ast::Expr::IfElse { branches, else_expr } => {
+        xluau::ast::Expr::IfElse {
+            branches,
+            else_expr,
+        } => {
             let mut inferred = infer_expr_value_kind(else_expr, typed_bindings, value_kinds);
             for (_, branch) in branches {
                 let branch_kind = infer_expr_value_kind(branch, typed_bindings, value_kinds);
@@ -1467,7 +1903,9 @@ fn infer_expr_value_kind(
             }
             inferred
         }
-        xluau::ast::Expr::DoExpr { result, .. } => infer_expr_value_kind(result, typed_bindings, value_kinds),
+        xluau::ast::Expr::DoExpr { result, .. } => {
+            infer_expr_value_kind(result, typed_bindings, value_kinds)
+        }
         xluau::ast::Expr::Table(fields) => Some(classify_table_fields(fields)),
         xluau::ast::Expr::Comprehension(comprehension) => match comprehension.kind {
             xluau::ast::TableComprehensionKind::Array { .. } => Some(ValueKind::TableArray),
@@ -1518,7 +1956,9 @@ fn value_kind_name(kind: &ValueKind) -> Option<&'static str> {
         ValueKind::Boolean => Some("boolean"),
         ValueKind::Nil => Some("nil"),
         ValueKind::Function => Some("function"),
-        ValueKind::TableArray | ValueKind::TableNumericKeys | ValueKind::TableUnknown => Some("table"),
+        ValueKind::TableArray | ValueKind::TableNumericKeys | ValueKind::TableUnknown => {
+            Some("table")
+        }
         ValueKind::Object(_) => None,
     }
 }
@@ -1538,8 +1978,7 @@ fn builtin_item_named<'a>(items: &'a [BuiltinItem], name: &str) -> Option<&'a Bu
 
 fn simple_type_name(annotation: &str) -> Option<&str> {
     let trimmed = annotation.trim();
-    let start = trimmed
-        .find(|ch: char| ch.is_ascii_alphabetic() || ch == '_')?;
+    let start = trimmed.find(|ch: char| ch.is_ascii_alphabetic() || ch == '_')?;
     let head = &trimmed[start..];
     let end = head
         .find(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
@@ -1702,7 +2141,8 @@ fn keyword_completion_item(keyword: &str) -> Value {
 }
 
 fn alias_completion_label(alias: &str) -> String {
-    alias.strip_suffix("/*")
+    alias
+        .strip_suffix("/*")
         .map(|prefix| format!("{prefix}/"))
         .unwrap_or_else(|| alias.to_string())
 }
@@ -1748,7 +2188,11 @@ fn match_fallback_edit(source: &str, line: usize) -> Option<Value> {
     }))
 }
 
-fn block_bounds(lines: &[&str], requested_line: usize, head_keyword: &str) -> Option<(usize, usize, String)> {
+fn block_bounds(
+    lines: &[&str],
+    requested_line: usize,
+    head_keyword: &str,
+) -> Option<(usize, usize, String)> {
     let head_line = (0..=requested_line.min(lines.len().saturating_sub(1)))
         .rev()
         .find(|line| lines[*line].trim_start().starts_with(head_keyword))?;
@@ -1833,7 +2277,9 @@ fn nearest_project_root(start: &Path, fallback: &Path) -> PathBuf {
 
 fn uri_to_path(uri: &str) -> Result<PathBuf, Box<dyn Error>> {
     let url = Url::parse(uri)?;
-    Ok(url.to_file_path().map_err(|_| io::Error::other("non-file URI"))?)
+    Ok(url
+        .to_file_path()
+        .map_err(|_| io::Error::other("non-file URI"))?)
 }
 
 fn path_to_uri(path: &Path) -> Result<String, Box<dyn Error>> {
@@ -1953,11 +2399,11 @@ mod tests {
     };
 
     use super::{
-        build_document_index, builtin_item_named, decode_string_token, diagnostic_from_message,
-        extract_one_based_position, extract_zero_based_validation_position, is_require_string_token,
-        member_access_context, member_completion_items, path_to_uri, range_from_token,
-        switch_default_edit, token_at_offset, type_alias_name, workspace_documents,
-        BUILTIN_GLOBALS, STRING_MEMBERS,
+        BUILTIN_GLOBALS, STRING_MEMBERS, build_document_index, builtin_item_named,
+        decode_string_token, diagnostic_from_message, extract_one_based_position,
+        extract_zero_based_validation_position, is_require_string_token, member_access_context,
+        member_completion_items, path_to_uri, range_from_token, switch_default_edit,
+        token_at_offset, type_alias_name, workspace_documents,
     };
     use xluau::Compiler;
     use xluau::lexer::{Lexer, TokenKind};
@@ -1983,7 +2429,10 @@ mod tests {
 
     #[test]
     fn parses_one_based_positions() {
-        assert_eq!(extract_one_based_position("expected expression at 4:12"), Some((4, 12)));
+        assert_eq!(
+            extract_one_based_position("expected expression at 4:12"),
+            Some((4, 12))
+        );
     }
 
     #[test]
@@ -1994,7 +2443,10 @@ mod tests {
 
     #[test]
     fn extracts_type_alias_names() {
-        assert_eq!(type_alias_name("type Result<T> = T"), Some("Result".to_string()));
+        assert_eq!(
+            type_alias_name("type Result<T> = T"),
+            Some("Result".to_string())
+        );
         assert_eq!(
             type_alias_name("export type Settings = { enabled: boolean }"),
             Some("Settings".to_string())

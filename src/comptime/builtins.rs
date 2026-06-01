@@ -45,7 +45,7 @@ pub fn call_builtin(name: &str, args: Vec<CtValue>, options: &ComptimeOptions) -
                     return Err(CompilerError::Other(format!(
                         "len expects a string or table, got {}.",
                         other.type_name()
-                    )))
+                    )));
                 }
             }))
         }
@@ -80,7 +80,11 @@ pub fn call_builtin(name: &str, args: Vec<CtValue>, options: &ComptimeOptions) -
                     frozen: false,
                 })),
                 CtValue::Table(table) => Ok(CtValue::Array(CtArray {
-                    items: table.entries.iter().map(|(_, value)| value.clone()).collect(),
+                    items: table
+                        .entries
+                        .iter()
+                        .map(|(_, value)| value.clone())
+                        .collect(),
                     frozen: false,
                 })),
                 other => Err(CompilerError::Other(format!(
@@ -123,18 +127,22 @@ pub fn call_builtin(name: &str, args: Vec<CtValue>, options: &ComptimeOptions) -
         }
         "upper" => {
             expect_arg_count(name, &args, 1)?;
-            Ok(CtValue::String(expect_string(&args[0], name)?.to_uppercase()))
+            Ok(CtValue::String(
+                expect_string(&args[0], name)?.to_uppercase(),
+            ))
         }
         "lower" => {
             expect_arg_count(name, &args, 1)?;
-            Ok(CtValue::String(expect_string(&args[0], name)?.to_lowercase()))
+            Ok(CtValue::String(
+                expect_string(&args[0], name)?.to_lowercase(),
+            ))
         }
         "replace" => {
             expect_arg_count(name, &args, 3)?;
-            Ok(CtValue::String(
-                expect_string(&args[0], name)?
-                    .replace(expect_string(&args[1], name)?, expect_string(&args[2], name)?),
-            ))
+            Ok(CtValue::String(expect_string(&args[0], name)?.replace(
+                expect_string(&args[1], name)?,
+                expect_string(&args[2], name)?,
+            )))
         }
         "startsWith" => {
             expect_arg_count(name, &args, 2)?;
@@ -189,7 +197,9 @@ pub fn call_builtin(name: &str, args: Vec<CtValue>, options: &ComptimeOptions) -
         }
         "trim" => {
             expect_arg_count(name, &args, 1)?;
-            Ok(CtValue::String(expect_string(&args[0], name)?.trim().to_string()))
+            Ok(CtValue::String(
+                expect_string(&args[0], name)?.trim().to_string(),
+            ))
         }
         _ => Err(CompilerError::Other(format!(
             "Function `{name}` is not available at compile time."
@@ -260,7 +270,10 @@ fn http_get(url: &str, options: &ComptimeOptions) -> Result<CtValue> {
     Ok(CtValue::Table(CtTable {
         entries: vec![
             ("ok".to_string(), CtValue::Bool(response.ok)),
-            ("status".to_string(), CtValue::Number(response.status as f64)),
+            (
+                "status".to_string(),
+                CtValue::Number(response.status as f64),
+            ),
             ("url".to_string(), CtValue::String(url.to_string())),
             ("body".to_string(), CtValue::String(response.body)),
         ],
@@ -287,7 +300,10 @@ fn fetch_http(url: &str, options: &ComptimeOptions) -> Result<HttpResponse> {
         ));
     }
 
-    if !matches!(url.split_once("://"), Some(("http", _)) | Some(("https", _))) {
+    if !matches!(
+        url.split_once("://"),
+        Some(("http", _)) | Some(("https", _))
+    ) {
         return Err(CompilerError::Other(format!(
             "Compile-time HTTP only supports http:// and https:// URLs, got `{url}`."
         )));
@@ -309,9 +325,7 @@ fn fetch_http(url: &str, options: &ComptimeOptions) -> Result<HttpResponse> {
         })?;
 
     let response = client.get(url).send().map_err(|error| {
-        CompilerError::Other(format!(
-            "Compile-time HTTP GET failed for `{url}`: {error}"
-        ))
+        CompilerError::Other(format!("Compile-time HTTP GET failed for `{url}`: {error}"))
     })?;
     let status = response.status();
     let body = response.text().map_err(|error| {
@@ -332,9 +346,7 @@ fn json_to_ct_value(value: JsonValue) -> Result<CtValue> {
         JsonValue::Null => Ok(CtValue::Nil),
         JsonValue::Bool(value) => Ok(CtValue::Bool(value)),
         JsonValue::Number(value) => value.as_f64().map(CtValue::Number).ok_or_else(|| {
-            CompilerError::Other(
-                "Compile-time JSON numbers must fit in an f64.".to_string(),
-            )
+            CompilerError::Other("Compile-time JSON numbers must fit in an f64.".to_string())
         }),
         JsonValue::String(value) => Ok(CtValue::String(value)),
         JsonValue::Array(items) => Ok(CtValue::Array(CtArray {

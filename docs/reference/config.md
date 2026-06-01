@@ -71,7 +71,7 @@ Supported current values:
 
 This affects module path emission.
 
-For `"roblox"`, `build` also writes `.rbxmx` wrapper files alongside emitted `.luau` files.
+For `"roblox"`, `build` can also write `.rbxmx` wrapper files alongside emitted `.luau` files and an optional project-wide `.rbxmx` export.
 
 ### `customTargetFunction`
 
@@ -93,6 +93,56 @@ Target Luau type-solver mode described by the project design.
 ### `baseDir`
 
 Root directory used for relative module layout and output structure.
+
+`build` preserves paths relative to `baseDir`, so with the default `baseDir: "src"`, `src/shared/math.xl` emits to `out/shared/math.luau`.
+
+### `robloxOutput`
+
+Roblox-specific output settings.
+
+Example:
+
+```json
+{
+  "target": "roblox",
+  "robloxOutput": {
+    "emitRbxmx": true,
+    "suffixes": {
+      "server": ".server",
+      "legacy": ".legacy",
+      "client": ".client",
+      "local": ".local"
+    },
+    "projectRbxmx": {
+      "enabled": true,
+      "path": "generated/game.rbxmx",
+      "rootName": "GameRoot",
+      "rootClassName": "Folder"
+    }
+  }
+}
+```
+
+Defaults:
+
+- `emitRbxmx`: `true`
+- `suffixes.server`: `".server"`
+- `suffixes.legacy`: `".legacy"`
+- `suffixes.client`: `".client"`
+- `suffixes.local`: `".local"`
+- `projectRbxmx.enabled`: `false`
+- `projectRbxmx.path`: `out/<project-name>.rbxmx`
+- `projectRbxmx.rootName`: project folder name
+- `projectRbxmx.rootClassName`: `"Folder"`
+
+Default Roblox filename mapping:
+
+- `*.server.xl` -> `Script` with `RunContext = Server`
+- `*.legacy.xl` -> `Script` with `RunContext = Legacy`
+- `*.client.xl` -> `Script` with `RunContext = Client`
+- `*.local.xl` -> `LocalScript`
+- other `.xl` files -> `ModuleScript`
+- `init*.xl` uses the parent folder name and makes that folder node the script/module in project exports
 
 ### `paths`
 

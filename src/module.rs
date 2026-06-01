@@ -190,7 +190,9 @@ impl ModuleResolver {
         }
 
         if specifier.starts_with('.') {
-            let Some(source_path) = self.try_resolve_relative_source_path(current_path, specifier)? else {
+            let Some(source_path) =
+                self.try_resolve_relative_source_path(current_path, specifier)?
+            else {
                 return Ok(None);
             };
             let logical_path = self.logical_module_path(&source_path)?;

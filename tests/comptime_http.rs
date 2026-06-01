@@ -39,7 +39,9 @@ fn start_test_server(body: &'static str, status_code: u16, status_text: &'static
             "HTTP/1.1 {status_code} {status_text}\r\nContent-Length: {}\r\nContent-Type: text/plain; charset=utf-8\r\nConnection: close\r\n\r\n{body}",
             body.len()
         );
-        stream.write_all(response.as_bytes()).expect("write response");
+        stream
+            .write_all(response.as_bytes())
+            .expect("write response");
         stream.flush().expect("flush");
     });
 
@@ -80,8 +82,14 @@ return body, status, ok
     );
 
     let compiler = Compiler::discover(&root).expect("compiler");
-    let artifact = compiler.build_file(&root.join("src/main.xl")).expect("artifact");
-    assert!(artifact.luau.contains(r#"local body = "hello from comptime""#));
+    let artifact = compiler
+        .build_file(&root.join("src/main.xl"))
+        .expect("artifact");
+    assert!(
+        artifact
+            .luau
+            .contains(r#"local body = "hello from comptime""#)
+    );
     assert!(artifact.luau.contains("local status = 200"));
     assert!(artifact.luau.contains("local ok = true"));
 }
@@ -124,7 +132,9 @@ return version, debug, firstItem
     );
 
     let compiler = Compiler::discover(&root).expect("compiler");
-    let artifact = compiler.build_file(&root.join("src/main.xl")).expect("artifact");
+    let artifact = compiler
+        .build_file(&root.join("src/main.xl"))
+        .expect("artifact");
     assert!(artifact.luau.contains(r#"local version = "v1""#));
     assert!(artifact.luau.contains("local debug = true"));
     assert!(artifact.luau.contains(r#"local firstItem = "alpha""#));
@@ -150,10 +160,12 @@ return comptime RESPONSE.body
     );
 
     let compiler = Compiler::discover(&root).expect("compiler");
-    let err = compiler.build_file(&root.join("src/main.xl")).expect_err("disabled error");
-    assert!(err
-        .to_string()
-        .contains("Compile-time HTTP is disabled. Enable `comptimeHttp.enabled` in xluau.config.json."));
+    let err = compiler
+        .build_file(&root.join("src/main.xl"))
+        .expect_err("disabled error");
+    assert!(err.to_string().contains(
+        "Compile-time HTTP is disabled. Enable `comptimeHttp.enabled` in xluau.config.json."
+    ));
 }
 
 #[test]
@@ -181,8 +193,12 @@ return comptime RESPONSE.body
     );
 
     let compiler = Compiler::discover(&root).expect("compiler");
-    let err = compiler.build_file(&root.join("src/main.xl")).expect_err("allowlist error");
-    assert!(err
-        .to_string()
-        .contains("Compile-time HTTP request to `https://blocked.example/data` is not allowed."));
+    let err = compiler
+        .build_file(&root.join("src/main.xl"))
+        .expect_err("allowlist error");
+    assert!(
+        err.to_string().contains(
+            "Compile-time HTTP request to `https://blocked.example/data` is not allowed."
+        )
+    );
 }

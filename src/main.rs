@@ -1,6 +1,5 @@
 use std::{
-    fs,
-    io,
+    fs, io,
     path::{Path, PathBuf},
     process::Command as ProcessCommand,
     process::ExitCode,
@@ -191,7 +190,10 @@ fn run_list(args: ProjectPathArgs, cwd: &Path) -> Result<(), Box<dyn std::error:
     let root = resolve_project_root(args.path, cwd)?;
     let manager = PackageManager::discover(&root)?;
     for package in manager.list()? {
-        println!("{} {} {}", package.package_id, package.version, package.repo);
+        println!(
+            "{} {} {}",
+            package.package_id, package.version, package.repo
+        );
     }
     Ok(())
 }
@@ -270,12 +272,13 @@ fn run_file(args: RunArgs, cwd: &Path) -> Result<(), Box<dyn std::error::Error>>
         .arg(&artifact.output)
         .args(&args.args)
         .status()
-        .map_err(|error| io::Error::other(format!("failed to launch runtime `{runtime}`: {error}")))?;
+        .map_err(|error| {
+            io::Error::other(format!("failed to launch runtime `{runtime}`: {error}"))
+        })?;
     if !status.success() {
-        return Err(io::Error::other(format!(
-            "runtime `{runtime}` exited with status {status}"
-        ))
-        .into());
+        return Err(
+            io::Error::other(format!("runtime `{runtime}` exited with status {status}")).into(),
+        );
     }
 
     Ok(())
@@ -302,7 +305,9 @@ fn run_operation_once(
     match target {
         InvocationTarget::ProjectRoot(root) => {
             let compiler = Compiler::discover(root)?;
-            for artifact in compiler.build_project()? {
+            let artifacts = compiler.build_project()?;
+            let project_rbxmx = compiler.build_project_rbxmx(&artifacts)?;
+            for artifact in artifacts {
                 match operation {
                     Operation::Build => {
                         compiler.write_artifact(&artifact)?;
@@ -317,6 +322,23 @@ fn run_operation_once(
                             "checked {} ({}) bytes",
                             artifact.input.display(),
                             artifact.luau.len()
+                        );
+                    }
+                }
+            }
+            if let Some(project_rbxmx) = project_rbxmx {
+                match operation {
+                    Operation::Build => {
+                        compiler.write_project_rbxmx(&project_rbxmx)?;
+                        println!(
+                            "built Roblox project export -> {}",
+                            project_rbxmx.output.display()
+                        );
+                    }
+                    Operation::Check => {
+                        println!(
+                            "checked Roblox project export -> {}",
+                            project_rbxmx.output.display()
                         );
                     }
                 }
@@ -392,10 +414,7 @@ fn resolve_invocation_target(
         return Ok(InvocationTarget::ProjectRoot(root.to_path_buf()));
     }
 
-    let compiler_root = nearest_project_root(
-        absolute.parent().unwrap_or(cwd),
-        cwd,
-    );
+    let compiler_root = nearest_project_root(absolute.parent().unwrap_or(cwd), cwd);
 
     Ok(InvocationTarget::SingleFile {
         compiler_root,
@@ -579,7 +598,10 @@ fn collect_watch_files(
             collect_watch_files(&path, files)?;
             continue;
         }
-        let name = path.file_name().and_then(|name| name.to_str()).unwrap_or("");
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("");
         let ext = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
         if matches!(ext, "xl" | "luau" | "lua" | "json") || name == "xluau.config.json" {
             files.push(path);
@@ -591,7 +613,8 @@ fn collect_watch_files(
 }
 
 fn snapshot_files(files: Vec<PathBuf>) -> Vec<(PathBuf, Option<SystemTime>)> {
-    files.into_iter()
+    files
+        .into_iter()
         .map(|path| {
             let modified = fs::metadata(&path).and_then(|meta| meta.modified()).ok();
             (path, modified)
@@ -663,8 +686,8 @@ mod tests {
         let source = root.join("src/nested/main.xl");
         write_file(&source, "return nil");
 
-        let target =
-            resolve_invocation_target(Some(source.clone()), Path::new("D:/unused")).expect("target");
+        let target = resolve_invocation_target(Some(source.clone()), Path::new("D:/unused"))
+            .expect("target");
         match target {
             InvocationTarget::SingleFile {
                 compiler_root,
@@ -684,8 +707,7 @@ mod tests {
         let source = file_root.join("main.xl");
         write_file(&source, "return nil");
 
-        let target =
-            resolve_invocation_target(Some(source.clone()), &cwd).expect("target");
+        let target = resolve_invocation_target(Some(source.clone()), &cwd).expect("target");
         match target {
             InvocationTarget::SingleFile {
                 compiler_root,
@@ -705,7 +727,10 @@ mod tests {
         let nested = root.join("src/server/controllers");
         fs::create_dir_all(&nested).expect("nested");
 
-        assert_eq!(nearest_project_root(&nested, Path::new("D:/fallback")), root);
+        assert_eq!(
+            nearest_project_root(&nested, Path::new("D:/fallback")),
+            root
+        );
     }
 
     #[test]
