@@ -289,14 +289,14 @@ impl Compiler {
             .project_rbxmx
             .root_name
             .clone()
-            .unwrap_or_else(|| sanitize_roblox_identifier(&self.project_name()));
+            .unwrap_or_else(|| self.project_name());
         let root_item = root.into_root_item(
             self.config
                 .roblox_output
                 .project_rbxmx
                 .root_class_name
                 .clone(),
-            root_name,
+            sanitize_roblox_identifier(&root_name),
         );
 
         Ok(Some(ProjectRbxmxArtifact {
@@ -323,7 +323,7 @@ impl Compiler {
         let mut output = self
             .root
             .join(&self.config.out_dir)
-            .join(self.source_relative_path(input));
+            .join(self.output_relative_path(input)?);
         output.set_extension("luau");
         Ok(output)
     }
@@ -488,6 +488,15 @@ impl Compiler {
             .to_path_buf()
     }
 
+    fn output_relative_path(&self, input: &Path) -> Result<PathBuf> {
+        let relative = self.source_relative_path(input);
+        if !self.is_roblox_target() {
+            return Ok(relative);
+        }
+
+        self.roblox_output_relative_path(&relative)
+    }
+
     fn project_name(&self) -> String {
         self.root
             .file_name()
@@ -512,8 +521,80 @@ impl Compiler {
             .unwrap_or_else(|| {
                 self.root
                     .join(&self.config.out_dir)
-                    .join(format!("{}.rbxmx", self.project_name()))
+                    .join(format!(
+                        "{}.rbxmx",
+                        sanitize_roblox_identifier(&self.project_name())
+                    ))
             })
+    }
+
+    fn roblox_output_relative_path(&self, relative: &Path) -> Result<PathBuf> {
+        let mut output = PathBuf::new();
+        for component in relative.parent().into_iter().flat_map(Path::components) {
+            let name = component.as_os_str().to_str().ok_or_else(|| {
+                CompilerError::Other(format!(
+                    "unsupported Roblox output path component in {}",
+                    relative.display()
+                ))
+            })?;
+            output.push(sanitize_roblox_identifier(name));
+        }
+
+        let file_name = relative
+            .file_name()
+            .and_then(|value| value.to_str())
+            .ok_or_else(|| {
+                CompilerError::Other(format!(
+                    "invalid source filename for Roblox output path: {}",
+                    relative.display()
+                ))
+            })?;
+        let stem = relative
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .ok_or_else(|| {
+                CompilerError::Other(format!(
+                    "invalid source filename for Roblox output path: {}",
+                    relative.display()
+                ))
+            })?;
+
+        let safe_stem = self.roblox_output_file_stem(stem);
+        let extension = file_name
+            .strip_prefix(stem)
+            .unwrap_or_default()
+            .trim_start_matches('.');
+
+        if extension.is_empty() {
+            output.push(safe_stem);
+        } else {
+            output.push(format!("{safe_stem}.{extension}"));
+        }
+
+        Ok(output)
+    }
+
+    fn roblox_output_file_stem(&self, stem: &str) -> String {
+        let mut suffixes = [
+            self.config.roblox_output.suffixes.server.as_str(),
+            self.config.roblox_output.suffixes.legacy.as_str(),
+            self.config.roblox_output.suffixes.client.as_str(),
+            self.config.roblox_output.suffixes.local.as_str(),
+        ];
+        suffixes.sort_by_key(|suffix| std::cmp::Reverse(suffix.len()));
+
+        for suffix in suffixes {
+            if suffix.is_empty() || !stem.ends_with(suffix) {
+                continue;
+            }
+            let stripped = &stem[..stem.len() - suffix.len()];
+            if stripped.is_empty() {
+                return sanitize_roblox_identifier(stem);
+            }
+            return format!("{}{}", sanitize_roblox_identifier(stripped), suffix);
+        }
+
+        sanitize_roblox_identifier(stem)
     }
 
     fn roblox_source_spec(&self, relative: &Path) -> Result<RobloxSourceSpec> {
@@ -843,7 +924,7 @@ mod tests {
     };
 
     use super::Compiler;
-    use crate::package_manager::PackageManager;
+    use crate::{module::sanitize_roblox_identifier, package_manager::PackageManager};
 
     fn compiler() -> Compiler {
         Compiler::discover(".").expect("compiler")
@@ -1965,12 +2046,30 @@ const BASEPART_MAIN_SET = comptime makeSet(MAIN_PROPERTIES.BasePart)
             .build_file(&root.join("src/bridge-api/localhost-client.local.xl"))
             .unwrap();
         let rbxmx = artifact.rbxmx.expect("rbxmx contents");
+        let rbxmx_path = artifact.rbxmx_output.expect("rbxmx output path");
+        assert!(
+            artifact
+                .output
+                .ends_with(Path::new("out/bridge_api/localhost_client.local.luau"))
+        );
+        assert!(
+            rbxmx_path.ends_with(Path::new("out/bridge_api/localhost_client.local.rbxmx"))
+        );
         assert!(rbxmx.contains(r#"<string name="Name">localhost_client</string>"#));
 
         let project = compiler
             .build_project_rbxmx(&compiler.build_project().unwrap())
             .unwrap()
             .expect("project rbxmx");
+        let expected_project_name = format!(
+            "{}.rbxmx",
+            sanitize_roblox_identifier(
+                root.file_name()
+                    .and_then(|value| value.to_str())
+                    .expect("temp project name"),
+            )
+        );
+        assert!(project.output.ends_with(Path::new("out").join(expected_project_name)));
         assert!(
             project
                 .rbxmx
