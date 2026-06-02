@@ -1,0 +1,4 @@
+local child = require("@label/scriptName")
+local other = require("@other/tool")
+
+return child, other

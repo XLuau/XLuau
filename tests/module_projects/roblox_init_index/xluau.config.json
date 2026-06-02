@@ -1,0 +1,4 @@
+{
+  "include": ["src/**/*.xl"],
+  "target": "roblox"
+}

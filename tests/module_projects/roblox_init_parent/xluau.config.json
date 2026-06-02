@@ -1,0 +1,8 @@
+{
+  "include": ["src/**/*.xl"],
+  "target": "roblox",
+  "paths": {
+    "@label": "./src/label",
+    "@other": "./src/other"
+  }
+}

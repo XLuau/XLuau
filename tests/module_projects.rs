@@ -80,6 +80,16 @@ fn module_project_roblox_charsafe() {
 }
 
 #[test]
+fn module_project_roblox_init_parent() {
+    assert_module_fixture("roblox_init_parent", "src/label/init.local.xl");
+}
+
+#[test]
+fn module_project_roblox_init_index() {
+    assert_module_fixture("roblox_init_index", "src/main.xl");
+}
+
+#[test]
 fn module_project_custom_alias() {
     assert_module_fixture("custom_alias", "src/main.xl");
 }

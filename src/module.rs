@@ -196,10 +196,19 @@ impl ModuleResolver {
                 return Ok(None);
             };
             let logical_path = self.logical_module_path(&source_path)?;
+            let emitted_require = match self.config.target.as_str() {
+                "filesystem" => specifier.to_string(),
+                "roblox" | "custom" => self.emit_target_path(current_path, &logical_path)?,
+                other => {
+                    return Err(CompilerError::Other(format!(
+                        "unsupported target `{other}`"
+                    )));
+                }
+            };
             return Ok(Some(ResolvedModule {
                 source_path,
                 logical_path,
-                emitted_require: specifier.to_string(),
+                emitted_require,
                 is_external: false,
             }));
         }
@@ -340,10 +349,10 @@ impl ModuleResolver {
         }
 
         if candidate.is_dir() {
-            for index in &self.config.index_files {
+            for index in self.directory_index_stems() {
                 for extension in &self.config.extensions {
                     let ext = extension.trim_start_matches('.');
-                    let file = candidate.join(index).with_extension(ext);
+                    let file = candidate.join(format!("{index}.{ext}"));
                     if file.is_file() {
                         return Ok(normalize_path(&file));
                     }
@@ -372,13 +381,9 @@ impl ModuleResolver {
             .ok_or_else(|| {
                 CompilerError::Other(format!("invalid module filename {}", source_path.display()))
             })?;
+        let logical_stem = self.logical_file_stem(file_stem);
 
-        if self
-            .config
-            .index_files
-            .iter()
-            .any(|index| index == file_stem)
-        {
+        if self.is_index_stem(&logical_stem) {
             Ok(relative
                 .parent()
                 .unwrap_or_else(|| Path::new(""))
@@ -413,36 +418,24 @@ impl ModuleResolver {
     }
 
     fn emit_roblox_path(&self, current_path: &Path, logical_path: &Path) -> Result<String> {
-        let current = self.absolute(current_path);
-        let current_relative = current
-            .strip_prefix(self.root.join(&self.config.base_dir))
-            .or_else(|_| current.strip_prefix(&self.root))
-            .map_err(|_| {
-                CompilerError::Other(format!(
-                    "cannot compute roblox require path for {}",
-                    current.display()
-                ))
-            })?;
-
-        let parent_depth = current_relative
-            .parent()
-            .map(path_component_count)
-            .unwrap_or(0)
-            + 1;
-        let module_id = self.module_id(logical_path)?;
+        let current_module_id = self.current_module_id(current_path)?;
+        let target_module_id = self.module_id(logical_path)?;
+        let current_segments = path_component_strings(&current_module_id);
+        let target_segments = path_component_strings(&target_module_id);
+        let shared_prefix = current_segments
+            .iter()
+            .zip(&target_segments)
+            .take_while(|(left, right)| left == right)
+            .count();
 
         let mut expr = "script".to_string();
-        for _ in 0..parent_depth {
+        for _ in shared_prefix..current_segments.len() {
             expr.push_str(".Parent");
         }
 
-        for segment in module_id
-            .components()
-            .filter_map(component_to_identifier)
-            .map(sanitize_roblox_identifier)
-        {
+        for segment in target_segments.into_iter().skip(shared_prefix) {
             expr.push('.');
-            expr.push_str(&segment);
+            expr.push_str(&sanitize_roblox_identifier(&segment));
         }
 
         Ok(expr)
@@ -472,6 +465,61 @@ impl ModuleResolver {
         } else {
             normalize_path(&self.root.join(path))
         }
+    }
+
+    fn current_module_id(&self, current_path: &Path) -> Result<PathBuf> {
+        let current = self.absolute(current_path);
+        let logical_path = self.logical_module_path(&current)?;
+        self.module_id(&logical_path)
+    }
+
+    fn directory_index_stems(&self) -> Vec<String> {
+        let mut stems = self.config.index_files.clone();
+        if self.config.target == "roblox" {
+            for index in &self.config.index_files {
+                for suffix in self.roblox_suffixes() {
+                    let candidate = format!("{index}{suffix}");
+                    if !stems.iter().any(|existing| existing == &candidate) {
+                        stems.push(candidate);
+                    }
+                }
+            }
+        }
+        stems
+    }
+
+    fn logical_file_stem(&self, stem: &str) -> String {
+        if self.config.target != "roblox" {
+            return stem.to_string();
+        }
+
+        for suffix in self.roblox_suffixes() {
+            if suffix.is_empty() || !stem.ends_with(suffix) {
+                continue;
+            }
+            let stripped = &stem[..stem.len() - suffix.len()];
+            if !stripped.is_empty() {
+                return stripped.to_string();
+            }
+        }
+
+        stem.to_string()
+    }
+
+    fn is_index_stem(&self, stem: &str) -> bool {
+        self.config
+            .index_files
+            .iter()
+            .any(|index| index.eq_ignore_ascii_case(stem))
+    }
+
+    fn roblox_suffixes(&self) -> [&str; 4] {
+        [
+            self.config.roblox_output.suffixes.server.as_str(),
+            self.config.roblox_output.suffixes.legacy.as_str(),
+            self.config.roblox_output.suffixes.client.as_str(),
+            self.config.roblox_output.suffixes.local.as_str(),
+        ]
     }
 }
 
@@ -611,10 +659,11 @@ fn normalize_path(path: &Path) -> PathBuf {
     normalized
 }
 
-fn path_component_count(path: &Path) -> usize {
+fn path_component_strings(path: &Path) -> Vec<String> {
     path.components()
-        .filter(|component| matches!(component, Component::Normal(_)))
-        .count()
+        .filter_map(component_to_identifier)
+        .map(ToString::to_string)
+        .collect()
 }
 
 fn component_to_identifier(component: std::path::Component<'_>) -> Option<&str> {
